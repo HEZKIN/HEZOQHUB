@@ -1,0 +1,218 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "💀 HEZOQ HUB - DADDY'S POWER 💀",
+   Icon = 0,
+   LoadingTitle = "Injecting power straight into your veins...",
+   LoadingSubtitle = "Script by Daddy, enjoy the ride",
+   Theme = "Amethyst",
+
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = nil,
+      FileName = "HEZOQ_Hub_Config"
+   },
+
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink",
+      RememberJoins = true
+   },
+
+   KeySystem = false,
+})
+
+-- ========== PETS TAB ==========
+local PetsTab = Window:CreateTab("🔥 OP Pets Factory 🔥", 4483362458)
+
+local spawnSunGod = false
+PetsTab:CreateToggle({
+    Name = "☀️ Spawn Sun God (Spam Mode)",
+    CurrentValue = false,
+    Callback = function(state)
+        spawnSunGod = state
+        while spawnSunGod do
+            local args = {"Sun God"}
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PetCageEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+local autoGold = false
+PetsTab:CreateToggle({
+    Name = "💰 Auto Gold Upgrade Sun God",
+    CurrentValue = false,
+    Callback = function(state)
+        autoGold = state
+        while autoGold do
+            local args = {"Sun God", 100}
+            game:GetService("ReplicatedStorage"):WaitForChild("PetRemotes"):WaitForChild("GoldPetCraftEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+local autoDiamond = false
+PetsTab:CreateToggle({
+    Name = "💎 Auto Diamond Upgrade Gold Sun God",
+    CurrentValue = false,
+    Callback = function(state)
+        autoDiamond = state
+        while autoDiamond do
+            local args = {"Gold Sun God", 100}
+            game:GetService("ReplicatedStorage"):WaitForChild("PetRemotes"):WaitForChild("DiamondPetCraftEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+local autoVoid = false
+PetsTab:CreateToggle({
+    Name = "👻 Auto Void Upgrade Diamond Sun God",
+    CurrentValue = false,
+    Callback = function(state)
+        autoVoid = state
+        while autoVoid do
+            local args = {"Diamond Sun God", 100}
+            game:GetService("ReplicatedStorage"):WaitForChild("PetRemotes"):WaitForChild("VoidPetCraftEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+-- ========== AUTOFARM TAB ==========
+local AutoFarmTab = Window:CreateTab("💸 Ultimate AutoFarm 💸", 4483362458)
+
+local gemBlaster = false
+AutoFarmTab:CreateToggle({
+    Name = "💎 Gem Blaster (Max Gems Farming)",
+    CurrentValue = false,
+    Callback = function(state)
+        gemBlaster = state
+        while gemBlaster do
+            local args = {5} -- ID for gems
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SpinPrizeEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+local cashMultiplier = false
+AutoFarmTab:CreateToggle({
+    Name = "💰 10x Cash Turbo",
+    CurrentValue = false,
+    Callback = function(state)
+        cashMultiplier = state
+        while cashMultiplier do
+            local args = {8} -- ID for 10x cash
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SpinPrizeEvent"):FireServer(unpack(args))
+            task.wait(0.1)
+        end
+    end,
+})
+
+local freeUpgrade = false
+AutoFarmTab:CreateToggle({
+    Name = "🧠 Free Auto Upgrade (ALL STATS)",
+    CurrentValue = false,
+    Callback = function(state)
+        freeUpgrade = state
+        while freeUpgrade do
+            local upgrades = {
+                {"PetLuck", 0},
+                {"GemChance", 0},
+                {"Strength", 0},
+                {"WalkSpeed", 0}
+            }
+            for _, upgrade in ipairs(upgrades) do
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("UpgradeEvent"):FireServer(unpack(upgrade))
+            end
+            task.wait(0.1)
+        end
+    end,
+})
+
+-- ========== MISC TAB ==========
+local MiscTab = Window:CreateTab("⚙️ Miscellaneous ⚙️", 4483362458)
+
+MiscTab:CreateButton({
+    Name = "👑 Buy Pickaxe: PRINCE (FREE!)",
+    Callback = function()
+        local args = {"Prince"}
+        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("BuyPickaxeEvent"):FireServer(unpack(args))
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "👑 Buy Pickaxe: KINGS (FREE!)",
+    Callback = function()
+        local args = {"Kings"}
+        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("BuyPickaxeEvent"):FireServer(unpack(args))
+    end,
+})
+
+-- ========== WORLDS AUTOFARM TAB ==========
+local WorldsTab = Window:CreateTab("🌍 World AutoFarm 🌍", 4483362458)
+
+local worldToggles = {}
+
+for i = 1, 10 do
+    worldToggles[i] = false
+    WorldsTab:CreateToggle({
+        Name = "🌎 AutoFarm World " .. i,
+        CurrentValue = false,
+        Callback = function(state)
+            worldToggles[i] = state
+            if state then
+                task.spawn(function()
+                    local player = game.Players.LocalPlayer
+                    local char = player.Character or player.CharacterAdded:Wait()
+                    local hrp = char:WaitForChild("HumanoidRootPart")
+                    local humanoid = char:WaitForChild("Humanoid")
+                    local worldName = "World" .. i
+                    local target = workspace:WaitForChild(worldName):WaitForChild("WinPart")
+                    while worldToggles[i] do
+                        task.wait(0.5)
+                        -- Hide character
+                        for _, part in pairs(char:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                part.Transparency = 1
+                                part.CanCollide = false
+                            end
+                        end
+                        humanoid.PlatformStand = true
+
+                        -- Teleport to the platform
+                        hrp.CFrame = target.CFrame + Vector3.new(0, 5, 0)
+
+                        -- Trigger touch event
+                        for _, touch in pairs(target:GetChildren()) do
+                            if touch:IsA("TouchTransmitter") or touch.ClassName == "TouchInterest" then
+                                local partTouched = touch.Parent
+                                if partTouched and partTouched:IsA("BasePart") then
+                                    firetouchinterest(hrp, partTouched, 0)
+                                    task.wait(0.05)
+                                    firetouchinterest(hrp, partTouched, 1)
+                                end
+                            end
+                        end
+
+                        -- Show character
+                        for _, part in pairs(char:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                part.Transparency = 0
+                                part.CanCollide = true
+                            end
+                        end
+                        humanoid.PlatformStand = false
+
+                        print("🌍 AutoFarm World " .. i .. " is running!")
+                    end
+                end)
+            else
+                print("⏸️ AutoFarm World " .. i .. " stopped!")
+            end
+        end
+    })
+end
