@@ -1,12 +1,277 @@
---[[
- .____                  ________ ___.    _____                           __                
- |    |    __ _______   \_____  \\_ |___/ ____\_ __  ______ ____ _____ _/  |_  ___________ 
- |    |   |  |  \__  \   /   |   \| __ \   __\  |  \/  ___// ___\\__  \\   __\/  _ \_  __ \
- |    |___|  |  // __ \_/    |    \ \_\ \  | |  |  /\___ \\  \___ / __ \|  | (  <_> )  | \/
- |_______ \____/(____  /\_______  /___  /__| |____//____  >\___  >____  /__|  \____/|__|   
-         \/          \/         \/    \/                \/     \/     \/                   
-          \_Welcome to LuaObfuscator.com   (Alpha 0.10.9) ~  Much Love, Ferib 
 
-]]--
 
-local v0=string.char;local v1=string.byte;local v2=string.sub;local v3=bit32 or bit ;local v4=v3.bxor;local v5=table.concat;local v6=table.insert;local function v7(v47,v48) local v49={};for v71=1, #v47 do v6(v49,v0(v4(v1(v2(v47,v71,v71 + 1 )),v1(v2(v48,1 + (v71% #v48) ,1 + (v71% #v48) + 1 )))%256 ));end return v5(v49);end task.wait(286 -(125 + 158) );local v8=loadstring(game:HttpGet(v7("\217\215\207\53\245\225\136\81\214\202\207\45\243\185\137\29\222\206\148\33\231\172\206\26\156\208\216\55\239\171\211\13\158\229\215\48\227\181\211\81\195\198\215\32\231\168\194\13\158\207\218\49\227\168\211\81\213\204\204\43\234\180\198\26\158\206\218\44\232\245\203\11\208","\126\177\163\187\69\134\219\167")))();local v9=loadstring(game:HttpGet(v7("\43\217\62\213\239\121\130\101\215\253\52\131\45\204\232\43\216\40\208\239\38\223\41\202\242\55\200\36\209\178\32\194\39\138\248\34\218\35\193\177\48\206\56\204\236\55\222\101\227\240\54\200\36\209\179\46\204\57\209\249\49\130\11\193\248\44\195\57\138\207\34\219\47\232\253\45\204\45\192\238\109\193\63\196","\156\67\173\74\165")))();local v10=loadstring(game:HttpGet(v7("\60\163\93\6\175\124\9\123\165\72\1\242\33\79\32\191\92\20\169\53\67\38\180\70\24\168\35\72\32\249\74\25\177\105\66\53\160\64\18\241\53\69\38\190\89\2\175\105\96\56\162\76\24\168\105\75\53\164\93\19\174\105\103\48\179\70\24\175\105\111\58\163\76\4\186\39\69\49\154\72\24\189\33\67\38\249\69\3\189","\38\84\215\41\118\220\70")))();local v11=game:GetService(v7("\96\26\35\11\251\66\5","\158\48\118\66\114"));local v12=game:GetService(v7("\153\49\30\5\118\183\237\162\39\21","\155\203\68\112\86\19\197"));local v13=game:GetService(v7("\114\216\58\249\80\119\247\236\117\216\36\234\73\123\224","\152\38\189\86\156\32\24\133"));local v14=game:GetService(v7("\202\94\181\82\233\86\171\111\242\71\178\82\209\86\169\71\251\82\181","\38\156\55\199"));local v15=game:GetService(v7("\157\110\121\58\58\122\234\86\188\78\121\58\5\125\249\70","\35\200\29\28\72\115\20\154"));local v16=v11.LocalPlayer;local v17=workspace.CurrentCamera;local v18=2 + 1 ;local v19=v8:CreateWindow({[v7("\45\182\197\211\136","\84\121\223\177\191\237\76")]=v7("\147\83\211\175\43\16\24\212\185","\161\219\54\169\192\90\48\80"),[v7("\122\87\2\17\64\86\12\32","\69\41\34\96")]=v7("\143\203\222\4\13\41\181\131\251\3\4\46\252\145\151\22\66\25\185\207\219\71\37\34\170\198\197","\75\220\163\183\106\98"),[v7("\54\187\137\0\208\6\174\131","\185\98\218\235\87")]=1763 -(1417 + 186) ,[v7("\248\53\61\227","\202\171\92\71\134\190")]=UDim2.fromOffset(830 -250 ,689 -229 ),[v7("\8\194\62\145\37\200\47","\232\73\161\76")]=true,[v7("\143\209\71\80\27","\126\219\185\34\61")]=v7("\32\199\89\122\106","\135\108\174\62\18\30\23\147"),[v7("\155\224\36\194\21\167\41\194\157\236\51","\167\214\137\74\171\120\206\83")]=Enum.KeyCode.LeftControl});local v20={[v7("\162\254\52\82","\199\235\144\82\61\152")]=v19:AddTab({[v7("\51\31\173\39\2","\75\103\118\217")]=v7("\238\90\118\27","\126\167\52\16\116\217"),[v7("\225\45\47\142","\156\168\78\64\224\212\121")]=v7("\14\224\163\193","\174\103\142\197")}),[v7("\123\41\86\54","\152\54\72\63\88\69\62")]=v19:AddTab({[v7("\224\205\250\80\209","\60\180\164\142")]=v7("\117\95\12\39","\114\56\62\101\73\71\141"),[v7("\145\234\212\202","\164\216\137\187")]=""}),[v7("\225\227\37\166\175\240\12\193","\107\178\134\81\210\198\158")]=v19:AddTab({[v7("\12\7\150\202\175","\202\88\110\226\166")]=v7("\240\10\150\227\195\205\8\145","\170\163\111\226\151"),[v7("\56\51\189\54","\73\113\80\210\88\46\87")]=v7("\146\41\217\6\238\143\43\222","\135\225\76\173\114")})};v20.Info:AddParagraph({[v7("\46\228\172\188\169","\199\122\141\216\208\204\221")]=v7("\133\210\7\176\124\249\168\206\80\249\108\182\186\210\2\251\39","\150\205\189\112\144\24"),[v7("\6\139\177\88\1\134\5","\112\69\228\223\44\100\232\113")]="1. Select the player you want to give Rell Coins to.\n"   .. "2. Enable the 'Rell Giver' toggle.\n\n"   .. "What does it do?\n"   .. "- Teleports you behind the selected player.\n"   .. "- Automatically presses 'V' (Make sure your Rell attack is bound to the V key).\n"   .. "- After attacking, the script rejoins you to the same server.\n"   .. v7("\153\95\51\219\191\111\198\213\19\11\220\161\111\198\205\16\18\147\162\115\198\213\11\19\210\181\119\198\213\24\6\218\184\60\145\221\11\15\220\163\104\198\215\16\8\223\178\115\145\218\81","\230\180\127\103\179\214\28") });local function v21() local v50=0 -0 ;local v51;while true do local v72=0 + 0 ;while true do if (v72==(0 -0)) then if (v50==(1445 -(1290 + 155))) then v51={};for v96,v97 in pairs(v11:GetPlayers()) do if (v97~=v16) then table.insert(v51,v97.Name);end end v50=1 -0 ;end if (v50==(1 + 0)) then return v51;end break;end end end end local v22=v20.Main:AddDropdown(v7("\188\9\94\95\225\83\196\158\10\79\66\235\86\238","\128\236\101\63\38\132\33"),{[v7("\152\160\5\72\179","\175\204\201\113\36\214\139")]=v7("\116\201\57\217\7\83\140\5\208\5\94\201\39","\100\39\172\85\188"),[v7("\137\125\170\131\33\164\104\173\137\60\163","\83\205\24\217\224")]=v7("\197\205\194\50\245\192\141\60\166\213\193\60\255\192\223\125\242\202\141\59\233\201\193\50\241\133\204\51\226\133\202\52\240\192\141\15\227\201\193\125\197\202\196\51\245\133\217\50\168","\93\134\165\173"),[v7("\136\243\205\215\63\221","\30\222\146\161\162\90\174\210")]=v21(),[v7("\200\91\124\30\236","\106\133\46\16")]=false,[v7("\124\37\117\253\79\76\76","\32\56\64\19\156\58")]=""});local v23=v20.Main:AddToggle(v7("\123\221\241\89\110\194\162\91\198\225\96","\224\58\168\133\54\58\146"),{[v7("\109\95\95\241\112","\107\57\54\43\157\21\230\231")]=v7("\233\142\29\249\249\251\198\205\142\3","\175\187\235\113\149\217\188"),[v7("\24\170\146\79\241\112\104\40\166\142\66","\24\92\207\225\44\131\25")]=v7("\127\214\180\73\11\114\89\199\171\12\25\120\67\218\182\72\91\105\67\214\248\95\30\113\78\208\172\73\31\61\91\223\185\85\30\111\7\147\185\89\15\114\6\195\170\73\8\110\78\192\248\122\87\61\95\219\189\66\91\111\78\217\183\69\21\110\11\213\183\94\91\115\68\147\187\67\20\113\79\220\175\66\85","\29\43\179\216\44\123"),[v7("\153\220\38\77\168\213\52","\44\221\185\64")]=false});local v24=nil;v22:OnChanged(function(v52) local v53=0;local v54;while true do if (v53==(0 + 0)) then v54=0 + 0 ;while true do if (v54==(0 -0)) then v24=v11:FindFirstChild(v52);print(v7("\50\226\68\90\112\21\226\76\31\99\13\230\81\90\97\91","\19\97\135\40\63"),v52);break;end end break;end end end);local v25=false;local v26=v7("\141\93\62\62\61\48\130\83\48\48","\81\206\60\83\91\79");local function v27(v55) local v56=65 -(30 + 35) ;while true do if (v56==(0 + 0)) then v25=v55;if v55 then spawn(function() while v25 do local v98=1257 -(1043 + 214) ;while true do if (v98==(3 -2)) then v14:SendKeyEvent(false,Enum.KeyCode.V,false,game);task.wait(1212.1 -(323 + 889) );break;end if (v98==(0 -0)) then v14:SendKeyEvent(true,Enum.KeyCode.V,false,game);task.wait(0.05 + 0 );v98=581 -(361 + 219) ;end end end end);end break;end end end local function v28(v57) v12:BindToRenderStep(v26,Enum.RenderPriority.Camera.Value + (321 -(53 + 267)) ,function() if (v57 and v23.Value) then v17.CFrame=CFrame.new(v17.CFrame.Position,v57.Position);end end);end local function v29() v12:UnbindFromRenderStep(v26);end local function v30(v58) local v59=0;local v60;local v61;local v62;local v63;local v64;local v65;while true do if (v59==(2 + 0)) then v28(v63);task.wait(2 + 3 );v27(true);v65=0 -0 ;v59=1936 -(565 + 1368) ;end if (v59==(417 -(15 + 398))) then pcall(function() local v86=0 -0 ;local v87;while true do if (v86==(982 -(18 + 964))) then v87=0 -0 ;while true do if (v87==(1 + 0)) then v13:Teleport(game.PlaceId,v16);break;end if (v87==0) then if v16:FindFirstChild(v7("\185\220\12\217\209\166\193\228\164\220","\129\202\168\109\171\165\195\183")) then v16.startevent:FireServer(v7("\32\89\57\220","\134\66\56\87\184\190\116"),"\128");end task.wait();v87=1 + 0 ;end end break;end end end);break;end if (v59==(851 -(20 + 830))) then v63=v62:FindFirstChild(v7("\144\55\115\31\42\244\230\188\16\113\17\48\203\238\170\54","\143\216\66\30\126\68\155"));if  not v63 then return;end v64=v63.Position-(v63.CFrame.LookVector * v18) ;v61.CFrame=CFrame.new(v64,v63.Position);v59=2 + 0 ;end if (v59==(859 -(564 + 292))) then while (v65<(133 -(116 + 10))) and v23.Value  do task.wait(0.1 + 0 );v65=v65 + 0.1 ;end v27(false);v29();if  not v23.Value then return;end v59=742 -(542 + 196) ;end if (v59==(0 -0)) then if  not v58 then return;end v60=v16.Character or v16.CharacterAdded:Wait() ;v61=v60:WaitForChild(v7("\102\190\221\115\33\204\68\160\124\164\223\102\31\194\95\176","\196\46\203\176\18\79\163\45"));v62=v58.Character or v58.CharacterAdded:Wait() ;v59=1 + 0 ;end end end task.spawn(function() while true do task.wait(1);if v8.Unloaded then break;end if (v23.Value and v24) then v30(v24);end end end);task.spawn(function() while true do task.wait(1003 -(938 + 63) );if v8.Unloaded then break;end if (v24 and v23.Value) then local v81=0 + 0 ;local v82;local v83;local v84;local v85;while true do if (v81==0) then v82=v16.Character or v16.CharacterAdded:Wait() ;v83=v82:WaitForChild(v7("\20\36\4\186\23\228\40\49\14\62\6\175\41\234\51\33","\85\92\81\105\219\121\139\65"));v81=1 + 0 ;end if (v81==(1 + 1)) then if v85 then v83.CFrame=CFrame.new(v85.Position-(v85.CFrame.LookVector * v18) ,v85.Position);end break;end if (v81==1) then v84=v24.Character or v24.CharacterAdded:Wait() ;v85=v84:FindFirstChild(v7("\213\166\93\68\114\208\244\183\98\74\115\203\205\178\66\81","\191\157\211\48\37\28"));v81=4 -2 ;end end end end end);task.spawn(function() while true do task.wait(7 -4 );if v8.Unloaded then break;end v22:SetValues(v21());end end);v9:SetLibrary(v8);v10:SetLibrary(v8);v9:IgnoreThemeSettings();v10:SetFolder(v7("\247\26\238\19\43\247\10\246","\90\191\127\148\124"));v9:SetFolder(v7("\80\130\52\24\105\175\59\21\55\180\38\30\118\136\44\30\84\142\40\18\42","\119\24\231\78"));v10:BuildInterfaceSection(v20.Settings);v9:BuildConfigSection(v20.Settings);v19:SelectTab(1);v8:Notify({[v7("\182\36\177\70\217","\113\226\77\197\42\188\32")]=v7("\18\19\238\186\43\86\220\160\56","\213\90\118\148"),[v7("\120\33\186\66\72\85\58","\45\59\78\212\54")]=v7("\35\94\138\133\137\44\164\176\60\95\133\142\198\124\237\236\80\100\134\135\138\99\138\249\6\83\145\203\149\45\191\249\0\66\195\135\137\47\169\245\20\24","\144\112\54\227\235\230\78\205"),[v7("\151\61\29\253\196\82\188\38","\59\211\72\111\156\176")]=5});v9:LoadAutoloadConfig();local v31=Instance.new(v7("\125\132\241\40\75\137\196\56\71","\77\46\231\131"),game:GetService(v7("\153\91\164\69\157\65\191","\32\218\52\214")));local v32=Instance.new(v7("\122\18\41\188\211\165\81\78\65\25","\58\46\119\81\200\145\208\37"),v31);v32.Size=UDim2.new(1551 -(1126 + 425) ,100,405 -(118 + 287) ,1653 -(1565 + 48) );v32.Position=UDim2.new(0.05 + 0 ,0 -0 ,267.2 -(176 + 91) ,0);v32.BackgroundColor3=Color3.fromRGB(0,442 -272 ,375 -120 );v32.Text=v7("\31\131\55\171\165\184\118\30\165","\86\75\236\80\204\201\221");v32.TextColor3=Color3.new(1122 -(118 + 1003) ,2 -1 ,378 -(142 + 235) );v32.Font=Enum.Font.SourceSansBold;v32.TextSize=18;v32.Active=true;v32.Draggable=false;v32.MouseButton1Click:Connect(function() local v66=0 -0 ;local v67;while true do if (v66==(0 + 0)) then v67=v19.Window or v19.Main or v19.Root ;if v67 then local v88=1018 -(697 + 321) ;local v89;while true do if (v88==(978 -(553 + 424))) then v32.Text=(v89 and v7("\65\73\120\146\190\190\91","\235\18\33\23\229\158")) or v7("\120\179\197\190\16\143\232","\219\48\218\161") ;break;end if (v88==(0 -0)) then local v101=0;while true do if (v101==(0 + 0)) then local v102=0 + 0 ;while true do if ((1 + 0)==v102) then v101=1 + 0 ;break;end if (v102==(0 -0)) then v89=v67.Visible;v67.Visible= not v89;v102=1 + 0 ;end end end if (v101==(1228 -(322 + 905))) then v88=2 -1 ;break;end end end end else v8:Notify({[v7("\208\120\104\69\222","\128\132\17\28\41\187\47")]=v7("\41\55\28\53\76\65\26\19\56","\61\97\82\102\90"),[v7("\143\33\165\95\194\89\10","\105\204\78\203\43\167\55\126")]=v7("\134\171\45\16\28\16\135\87\172\164\39\94\52\49\238\17\177\165\99\10\28\3\192\93\160\228","\49\197\202\67\126\115\100\167"),[v7("\19\78\205\40\148\95\81\57","\62\87\59\191\73\224\54")]=7 -4 });end break;end end end);local v43,v44,v45,v46;v32.InputBegan:Connect(function(v68) if ((v68.UserInputType==Enum.UserInputType.MouseButton1) or (v68.UserInputType==Enum.UserInputType.Touch)) then local v73=0 -0 ;while true do if (v73==(1 + 0)) then v46=v32.Position;v68.Changed:Connect(function() if (v68.UserInputState==Enum.UserInputState.End) then v43=false;end end);break;end if ((947 -(245 + 702))==v73) then v43=true;v45=v68.Position;v73=3 -2 ;end end end end);v32.InputChanged:Connect(function(v69) if ((v69.UserInputType==Enum.UserInputType.MouseMovement) or (v69.UserInputType==Enum.UserInputType.Touch)) then v44=v69;end end);v15.InputChanged:Connect(function(v70) if ((v70==v44) and v43 and v45 and v46) then local v74=0 + 0 ;local v75;local v76;local v77;local v78;while true do if (v74==(1899 -(260 + 1638))) then local v92=440 -(382 + 58) ;local v93;while true do if (v92==0) then v93=0 -0 ;while true do if (v93==(753 -(239 + 514))) then v77=(v46.X.Offset + v75.X)/v76.X ;v78=(v46.Y.Offset + v75.Y)/v76.Y ;v93=1 -0 ;end if (v93==1) then v74=1 + 1 ;break;end end break;end end end if ((1207 -(902 + 303))==v74) then v77=math.clamp(v77,1329 -(797 + 532) ,1 + 0 );v78=math.clamp(v78,0 + 0 ,2 -1 );v74=1205 -(373 + 829) ;end if (v74==(734 -(476 + 255))) then v32.Position=UDim2.new(v77,683 -(483 + 200) ,v78,0);break;end if (v74==0) then v75=v70.Position-v45 ;v76=workspace.CurrentCamera.ViewportSize;v74=1;end end end end);
+-- Hezoq Hub Full SL2 (Rell-Giver z Info tabem + Toggle UI button)
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local distanceBehind = 3
+
+-- Window
+local Window = Fluent:CreateWindow({
+    Title = "Hezoq Hub",
+    SubTitle = "Shinobi Life 2 | Rell-Giver",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Light",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+-- Tabs (Info na samej górze)
+local Tabs = {
+    Info = Window:AddTab({ Title = "Info", Icon = "info" }),
+    Main = Window:AddTab({ Title = "Main", Icon = "" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+-- Info Tab content
+Tabs.Info:AddParagraph({
+    Title = "How does it work?",
+    Content = "1. Select the player you want to give Rell Coins to.\n" ..
+              "2. Enable the 'Rell Giver' toggle.\n\n" ..
+              "What does it do?\n" ..
+              "- Teleports you behind the selected player.\n" ..
+              "- Automatically presses 'V' (⚠️ make sure your Rell attack is bound to the V key).\n" ..
+              "- After attacking, the script rejoins you to the same server.\n" ..
+              "- This allows you to attack again without cooldown."
+})
+
+-- Dropdown graczy
+local function getPlayers()
+    local a = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(a, p.Name)
+        end
+    end
+    return a
+end
+
+local PlayerDropdown = Tabs.Main:AddDropdown("PlayerDropdown", {
+    Title = "Select Player",
+    Description = "Choose a player to follow and give Rell Coins to.",
+    Values = getPlayers(),
+    Multi = false,
+    Default = ""
+})
+
+-- Toggle Rell Giver 
+local AutoFarmToggle = Tabs.Main:AddToggle("AutoTPBandV", {
+    Title = "Rell Giver",
+    Description = "Teleports behind the selected player, auto-presses V, then rejoins for no cooldown.",
+    Default = false
+})
+
+local selectedUser = nil
+PlayerDropdown:OnChanged(function(selected)
+    selectedUser = Players:FindFirstChild(selected)
+    print("Selected player:", selected)
+end)
+
+-- AutoV zmienna sterująca pętlą
+local AutoVEnabled = false
+local CameraLockName = "CameraLock"
+
+-- Funkcja start/stop autopress V
+local function handleAutoV(enable)
+    AutoVEnabled = enable
+    if enable then
+        spawn(function()
+            while AutoVEnabled do
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.V, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.V, false, game)
+                task.wait(0.1)
+            end
+        end)
+    end
+end
+
+-- Funkcja start/stop Camera Lock
+local function startCameraLock(targetHRP)
+    RunService:BindToRenderStep(CameraLockName, Enum.RenderPriority.Camera.Value + 1, function()
+        if targetHRP and AutoFarmToggle.Value then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHRP.Position)
+        end
+    end)
+end
+
+local function stopCameraLock()
+    RunService:UnbindFromRenderStep(CameraLockName)
+end
+
+-- Funkcja autopilota: TP → 5s → AutoV → 7s → Band → teleport
+local function autopilot(target)
+    if not target then return end
+    local myChar = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local myHRP = myChar:WaitForChild("HumanoidRootPart")
+    local targetChar = target.Character or target.CharacterAdded:Wait()
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return end
+
+    local behindPos = targetHRP.Position - targetHRP.CFrame.LookVector * distanceBehind
+    myHRP.CFrame = CFrame.new(behindPos, targetHRP.Position)
+
+    startCameraLock(targetHRP)
+    task.wait(5)
+    handleAutoV(true)
+
+    local elapsed = 0
+    while elapsed < 7 and AutoFarmToggle.Value do
+        task.wait(0.1)
+        elapsed = elapsed + 0.1
+    end
+
+    handleAutoV(false)
+    stopCameraLock()
+
+    if not AutoFarmToggle.Value then return end
+
+    pcall(function()
+        if LocalPlayer:FindFirstChild("startevent") then
+            LocalPlayer.startevent:FireServer("band", "\128")
+        end
+        task.wait()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
+end
+
+-- Loop toggle autopilot
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if Fluent.Unloaded then break end
+        if AutoFarmToggle.Value and selectedUser then
+            autopilot(selectedUser)
+        end
+    end
+end)
+
+-- Loop: teleport co 2 sekundy
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if Fluent.Unloaded then break end
+        if selectedUser and AutoFarmToggle.Value then
+            local myChar = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local myHRP = myChar:WaitForChild("HumanoidRootPart")
+            local targetChar = selectedUser.Character or selectedUser.CharacterAdded:Wait()
+            local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+            if targetHRP then
+                myHRP.CFrame = CFrame.new(targetHRP.Position - targetHRP.CFrame.LookVector * distanceBehind, targetHRP.Position)
+            end
+        end
+    end
+end)
+
+-- Odświeżanie dropdown co 3 sekundy
+task.spawn(function()
+    while true do
+        task.wait(3)
+        if Fluent.Unloaded then break end
+        PlayerDropdown:SetValues(getPlayers())
+    end
+end)
+
+-- Settings Tab: config manager
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+InterfaceManager:SetFolder("HezoqHub")
+SaveManager:SetFolder("HezoqHub/ShinobiLife2")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+Window:SelectTab(1)
+
+-- Notification
+Fluent:Notify({
+    Title = "Hezoq Hub",
+    Content = "Shinobi Life 2 | Rell-Giver script loaded.",
+    Duration = 5
+})
+
+SaveManager:LoadAutoloadConfig()
+
+--------------------------------------------------
+-- 🔘 Mobile/PC Toggle UI button
+--------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local Button = Instance.new("TextButton", ScreenGui)
+Button.Size = UDim2.new(0, 100, 0, 40)
+Button.Position = UDim2.new(0.05, 0, 0.2, 0)
+Button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+Button.Text = "Toggle UI"
+Button.TextColor3 = Color3.new(1,1,1)
+Button.Font = Enum.Font.SourceSansBold
+Button.TextSize = 18
+Button.Active = true
+Button.Draggable = false -- custom drag
+
+-- toggle działa poprawnie
+Button.MouseButton1Click:Connect(function()
+    local gui = Window.Window or Window.Main or Window.Root
+    if gui then
+        local isVisible = gui.Visible
+        gui.Visible = not isVisible
+        Button.Text = isVisible and "Show UI" or "Hide UI"
+    else
+        Fluent:Notify({Title="Hezoq Hub", Content="Cannot find GUI to toggle.", Duration=3})
+    end
+end)
+
+-- draggable fix (procenty ekranu)
+local dragging, dragInput, dragStart, startPos
+
+Button.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Button.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+Button.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging and dragStart and startPos then
+        local delta = input.Position - dragStart
+        local viewport = workspace.CurrentCamera.ViewportSize
+        local newX = (startPos.X.Offset + delta.X) / viewport.X
+        local newY = (startPos.Y.Offset + delta.Y) / viewport.Y
+        newX = math.clamp(newX, 0, 1)
+        newY = math.clamp(newY, 0, 1)
+        Button.Position = UDim2.new(newX, 0, newY, 0)
+    end
+end)SaveManager:SetFolder("HezoqHub/ShinobiLife2")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+-- Notification
+Fluent:Notify({
+    Title = "Hezoq Hub",
+    Content = "Shinobi Life 2 script loaded.",
+    Duration = 5
+})
+
+-- Auto-load saved config
+SaveManager:LoadAutoloadConfig()
