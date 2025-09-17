@@ -121,11 +121,11 @@ local function autopilot(target)
     myHRP.CFrame = CFrame.new(behindPos, targetHRP.Position)
 
     startCameraLock(targetHRP)
-    task.wait(5)
+    task.wait(3)
     handleAutoV(true)
 
     local elapsed = 0
-    while elapsed < 7 and AutoFarmToggle.Value do
+    while elapsed < 5 and AutoFarmToggle.Value do
         task.wait(0.1)
         elapsed = elapsed + 0.1
     end
