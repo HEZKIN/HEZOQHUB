@@ -1,0 +1,4622 @@
+-- ============================================================================
+-- MISSWARE RESOLVER v2.0 - REWRITTEN EDITION
+-- ============================================================================
+-- CZĘŚĆ 1/2: Core Systems, Advanced Detection, Backtrack, Smart Mode Selection
+-- ============================================================================
+-- CHANGELOG v2.0:
+-- ✓ Dynamic Mode Selection (score-based, nie fixed priority)
+-- ✓ Full Backtrack System (12 tick history + lag comp)
+-- ✓ Object Pooling (zero GC pressure)
+-- ✓ Advanced Pattern Detection (autocorrelation + frequency)
+-- ✓ Prediction Error Analysis & Mitigation
+-- ✓ Per-Mode Success Tracking
+-- ✓ Improved LBY with tick-perfect timing
+-- ✓ Multi-angle Freestanding
+-- ✓ Velocity Prediction
+-- ✓ Animation State Analysis
+-- ============================================================================
+
+local VERSION = "2.0.0"
+local SCRIPT_NAME = "MISSWARE"
+
+-- ============================================================================
+-- LOCAL CACHE (Performance)
+-- ============================================================================
+
+local math_sqrt = math.sqrt
+local math_abs = math.abs
+local math_floor = math.floor
+local math_ceil = math.ceil
+local math_sin = math.sin
+local math_cos = math.cos
+local math_atan2 = math.atan2
+local math_deg = math.deg
+local math_rad = math.rad
+local math_min = math.min
+local math_max = math.max
+local math_random = math.random
+local math_fmod = math.fmod
+local math_pi = math.pi
+local table_insert = table.insert
+local table_remove = table.remove
+local table_sort = table.sort
+local string_format = string.format
+local string_sub = string.sub
+local pairs = pairs
+local ipairs = ipairs
+local type = type
+local tonumber = tonumber
+local tostring = tostring
+local unpack = unpack
+local setmetatable = setmetatable
+local getmetatable = getmetatable
+local pcall = pcall
+local bit_band = bit.band
+local bit_bor = bit.bor
+local bit_lshift = bit.lshift
+local bit_rshift = bit.rshift
+
+-- ============================================================================
+-- CONFIGURATION v2.0
+-- ============================================================================
+
+local CONFIG = {
+    -- Core
+    max_history = 64,
+    max_shot_history = 128,
+    max_position_history = 32,
+    
+    -- Backtrack
+    backtrack_max_ticks = 12,
+    backtrack_min_ticks = 2,
+    backtrack_prefer_moving = true,
+    backtrack_prefer_standing = false,
+    
+    -- Pattern Detection (Advanced)
+    jitter_threshold = 25,
+    jitter_frequency_min = 0.3,
+    jitter_frequency_max = 0.7,
+    static_variance = 60,
+    spin_threshold = 260,
+    switch_min_count = 3,
+    switch_frequency_threshold = 0.4,
+    
+    -- Roll Detection (Dynamic)
+    roll_threshold_base = 0.65,
+    roll_threshold_standing = 0.70,
+    roll_threshold_moving = 0.80,
+    roll_threshold_ducking = 0.85,
+    roll_threshold_air = 0.60,
+    roll_max_misses_before_skip = 3,
+    
+    -- Peek Detection
+    peek_velocity_threshold = 130,
+    peek_accel_threshold = 650,
+    peek_duration = 0.50,
+    peek_angle_threshold = 75,
+    
+    -- Mode Selection (Score-based)
+    mode_score_decay = 0.92,
+    mode_min_confidence = 0.35,
+    mode_switch_threshold = 0.15,
+    
+    -- Bruteforce
+    brute_stages = 14,
+    miss_memory = 6,
+    stage_cooldown = 128,
+    brute_score_penalty = 0.85,
+    
+    -- Resolver Lock
+    lock_ticks_normal = 8,
+    lock_ticks_peek = 12,
+    lock_ticks_hit = 16,
+    
+    -- LBY (Tick-perfect)
+    lby_update_standing = 1.1,
+    lby_update_moving = 0.22,
+    lby_velocity_threshold = 0.1,
+    lby_break_threshold = 35,
+    lby_prediction_window = 0.06,
+    
+    -- Body Aim
+    baim_after_misses = 2,
+    baim_confidence_threshold = 0.42,
+    baim_on_pred_error = true,
+    baim_on_defensive = true,
+    baim_on_high_velocity = true,
+    baim_on_spin = true,
+    high_velocity_threshold = 170,
+    
+    -- Safe Point
+    safe_point_on_miss = true,
+    safe_point_on_movement = true,
+    safe_point_on_air = true,
+    safe_point_on_pred_error = true,
+    safe_point_on_peek = true,
+    safe_point_on_choke = true,
+    safe_point_choke_threshold = 4,
+    pred_error_memory_ticks = 128,
+    
+    -- Freestanding (Multi-angle)
+    trace_distance = 55,
+    trace_height_offset = 64,
+    trace_angles = {15, 30, 45, 60, 75, 90},
+    trace_heights = {0.3, 0.6, 0.9},
+    
+    -- Prediction Error Analysis
+    pred_error_velocity_threshold = 180,
+    pred_error_choke_threshold = 8,
+    pred_error_streak_threshold = 2,
+    
+    -- Animation
+    anim_layer_count = 13,
+    anim_activity_threshold = 0.1,
+    
+    -- Clantag
+    clantag_speed = 0.11,
+    
+    -- Kill Say
+    kill_say_enabled = true,
+    kill_say_delay = 0.35
+}
+
+-- ============================================================================
+-- ENUMS
+-- ============================================================================
+
+local SIDE = {
+    LEFT = -1,
+    CENTER = 0,
+    RIGHT = 1
+}
+
+local MODE = {
+    IDLE = 0,
+    LBY = 1,
+    FREESTANDING = 2,
+    VELOCITY = 3,
+    PATTERN = 4,
+    DEFENSIVE = 5,
+    ROLL = 6,
+    FLICK = 7,
+    JITTER = 8,
+    STATIC = 9,
+    BRUTEFORCE = 10,
+    ANTI_BRUTEFORCE = 11,
+    LASTMOVE = 12,
+    PEEK = 13,
+    AIR = 14,
+    SWITCH = 15,
+    SPIN = 16,
+    PRED_ERROR_RECOVERY = 17,
+    BACKTRACK = 18,
+    ANIMATION = 19,
+    HYBRID = 20
+}
+
+local MODE_NAMES = {
+    [MODE.IDLE] = "IDLE",
+    [MODE.LBY] = "LBY",
+    [MODE.FREESTANDING] = "FREESTAND",
+    [MODE.VELOCITY] = "VELOCITY",
+    [MODE.PATTERN] = "PATTERN",
+    [MODE.DEFENSIVE] = "DEFENSIVE",
+    [MODE.ROLL] = "ROLL",
+    [MODE.FLICK] = "FLICK",
+    [MODE.JITTER] = "JITTER",
+    [MODE.STATIC] = "STATIC",
+    [MODE.BRUTEFORCE] = "BRUTE",
+    [MODE.ANTI_BRUTEFORCE] = "ANTI-BRUTE",
+    [MODE.LASTMOVE] = "LASTMOVE",
+    [MODE.PEEK] = "PEEK",
+    [MODE.AIR] = "AIR",
+    [MODE.SWITCH] = "SWITCH",
+    [MODE.SPIN] = "SPIN",
+    [MODE.PRED_ERROR_RECOVERY] = "PE-RECOVERY",
+    [MODE.BACKTRACK] = "BACKTRACK",
+    [MODE.ANIMATION] = "ANIMATION",
+    [MODE.HYBRID] = "HYBRID"
+}
+
+local MODE_SHORT = {
+    [MODE.IDLE] = "IDL",
+    [MODE.LBY] = "LBY",
+    [MODE.FREESTANDING] = "FS",
+    [MODE.VELOCITY] = "VEL",
+    [MODE.PATTERN] = "PAT",
+    [MODE.DEFENSIVE] = "DEF",
+    [MODE.ROLL] = "ROL",
+    [MODE.FLICK] = "FLK",
+    [MODE.JITTER] = "JIT",
+    [MODE.STATIC] = "STC",
+    [MODE.BRUTEFORCE] = "BRU",
+    [MODE.ANTI_BRUTEFORCE] = "A-B",
+    [MODE.LASTMOVE] = "LM",
+    [MODE.PEEK] = "PEK",
+    [MODE.AIR] = "AIR",
+    [MODE.SWITCH] = "SWI",
+    [MODE.SPIN] = "SPN",
+    [MODE.PRED_ERROR_RECOVERY] = "PER",
+    [MODE.BACKTRACK] = "BT",
+    [MODE.ANIMATION] = "ANM",
+    [MODE.HYBRID] = "HYB"
+}
+
+-- Base scores dla każdego trybu (używane w dynamic selection)
+local MODE_BASE_SCORES = {
+    [MODE.IDLE] = 0.10,
+    [MODE.LBY] = 0.88,
+    [MODE.FREESTANDING] = 0.75,
+    [MODE.VELOCITY] = 0.70,
+    [MODE.PATTERN] = 0.60,
+    [MODE.DEFENSIVE] = 0.55,
+    [MODE.ROLL] = 0.85,
+    [MODE.FLICK] = 0.82,
+    [MODE.JITTER] = 0.50,
+    [MODE.STATIC] = 0.78,
+    [MODE.BRUTEFORCE] = 0.35,
+    [MODE.ANTI_BRUTEFORCE] = 0.40,
+    [MODE.LASTMOVE] = 0.65,
+    [MODE.PEEK] = 0.80,
+    [MODE.AIR] = 0.72,
+    [MODE.SWITCH] = 0.55,
+    [MODE.SPIN] = 0.45,
+    [MODE.PRED_ERROR_RECOVERY] = 0.38,
+    [MODE.BACKTRACK] = 0.82,
+    [MODE.ANIMATION] = 0.68,
+    [MODE.HYBRID] = 0.75
+}
+
+local HITGROUP = {
+    [0] = "generic",
+    [1] = "head",
+    [2] = "chest",
+    [3] = "stomach",
+    [4] = "left arm",
+    [5] = "right arm",
+    [6] = "left leg",
+    [7] = "right leg",
+    [8] = "neck"
+}
+
+local PATTERN = {
+    UNKNOWN = "UNKNOWN",
+    JITTER = "JITTER",
+    STATIC = "STATIC",
+    SPIN = "SPIN",
+    SWITCH = "SWITCH",
+    DYNAMIC = "DYNAMIC",
+    MICRO_JITTER = "MICRO_JIT",
+    LOW_DELTA = "LOW_DELTA"
+}
+
+local PRED_ERROR_REASON = {
+    UNKNOWN = "UNKNOWN",
+    CHOKE = "CHOKE",
+    VELOCITY = "VELOCITY",
+    ROLL_MISS = "ROLL_MISS",
+    LBY_BREAK = "LBY_BREAK",
+    ANIMATION = "ANIMATION",
+    RESOLVER_FAIL = "RESOLVER",
+    SPREAD = "SPREAD",
+    DESYNC = "DESYNC"
+}
+
+-- ============================================================================
+-- KILL SAY MESSAGES (80+) - Z OBSŁUGĄ IMIENIA GRACZA
+-- ============================================================================
+-- Użyj {name} jako placeholder dla imienia zabitego gracza
+-- ============================================================================
+
+local KILL_MESSAGES = {
+    -- ═══════════════════════════════════════════════════════════════════
+    -- MISSWARE FLEX
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} just got resolved by missware",
+    "{name}'s garbage aa got eaten by missware",
+    "missware > {name}'s paste resolver",
+    "get missware'd {name}",
+    "{name} your aa is free for missware",
+    "missware just destroyed {name}",
+    "{name} welcome to the missware experience",
+    "missware sends its regards to {name}",
+    "{name} this is what real resolving looks like",
+    "missware: making {name}'s aa obsolete",
+    "{name} you can't hide from missware",
+    "missware owns {name}",
+    "{name} just met missware, rip",
+    "missware > {name}",
+    "{name} got the missware treatment",
+    "another victim for missware: {name}",
+    "{name} is now a missware statistic",
+    "missware just collected {name}",
+    "{name} added to missware's body count",
+    "missware hitting different on {name}",
+    "{name} experienced the missware difference",
+    "missware 1 - {name} 0",
+    "{name} got missware'd into the shadow realm",
+    "missware says goodbye to {name}",
+    "{name} just learned about missware the hard way",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- TOXIC / TRASH TALK
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} skill issue detected",
+    "{name} delete cs already",
+    "{name} back to hvh school kid",
+    "imagine being {name} in 2024 lmao",
+    "{name} ur aa is mid at best",
+    "{name} nice config LOL",
+    "{name} your resolver is paste",
+    "L + ratio + {name} got resolved",
+    "{name} uninstall please thanks",
+    "{name} you're free af",
+    "gg ez {name}",
+    "{name} too easy next victim",
+    "{name} my grandma aims better",
+    "{name} your config is garbage",
+    "{name} that's embarrassing ngl",
+    "lol {name} what was that",
+    "{name} crying rn probably",
+    "{name} go back to mm",
+    "rent free in {name}'s head",
+    "{name} just stop playing",
+    "{name} ur literally free",
+    "{name} 0 skill detected",
+    "how is {name} so bad lmfao",
+    "{name} worst player in server",
+    "{name} you call that anti-aim?",
+    "{name} boosted or what?",
+    "is {name} even trying?",
+    "{name} so predictable lol",
+    "{name} thanks for the free kill",
+    "another free kill: {name}",
+    "{name} was that your best?",
+    "{name} please try harder",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- HUMILIATION
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} just got destroyed",
+    "{name} absolutely demolished",
+    "{name} sent to the lobby",
+    "rip {name} won't be missed",
+    "{name} got folded like a chair",
+    "{name} packed and sent home",
+    "bye bye {name}",
+    "{name} got deleted from existence",
+    "{name} evaporated",
+    "where did {name} go? oh right, dead",
+    "{name} got absolutely farmed",
+    "{name} turned into content",
+    "clip that, {name} got rekt",
+    "{name} just became a highlight",
+    "another body: {name}",
+    "{name} got packed up",
+    "{name} shipped to the shadow realm",
+    "{name} got sent to god",
+    "rest in pieces {name}",
+    "{name} just got violated",
+    "that was personal {name}",
+    "{name} got embarrassed",
+    "{name} just fed me",
+    "ty for kill {name}",
+    "{name} is my favorite victim",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- RESOLVER SPECIFIC
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} your desync is garbage",
+    "{name}'s aa got exposed",
+    "resolved {name} in 1 tick",
+    "{name} nice fake angle bro",
+    "{name} your jitter doesn't work",
+    "bruteforced {name}'s paste aa",
+    "{name} ur roll aa is free",
+    "{name} lby prediction = ez",
+    "peeked and resolved {name}",
+    "{name} your defensive aa sucks",
+    "static aa andy: {name}",
+    "{name} try a different aa next time",
+    "{name} ur aa config is 2019",
+    "resolved {name}'s spin = free",
+    "{name} fakelag won't save you",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- FLEX / CONFIDENCE
+    -- ═══════════════════════════════════════════════════════════════════
+    "1 tap machine vs {name}",
+    "skill diff too big for {name}",
+    "{name} outplayed outaimed outresolved",
+    "calculated {name}'s death",
+    "{name} never had a chance",
+    "{name} got styled on",
+    "ez clap {name}",
+    "{name} skill gap is massive",
+    "levels above {name}",
+    "{name} not even close",
+    "free {name}",
+    "{name} couldn't compete",
+    "diff vs {name}",
+    "{name} sat down",
+    "{name} got humbled",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- SHORT & TOXIC
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} bot",
+    "{name} nn",
+    "{name} dogwater",
+    "{name} trash",
+    "{name} free",
+    "lol {name}",
+    "zzz {name}",
+    "{name} yikes",
+    "{name} L",
+    "cya {name}",
+    "owned {name}",
+    "next {name}",
+    "{name} sit",
+    "{name} rip",
+    "{name} gg",
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- SPECIAL / MEME
+    -- ═══════════════════════════════════════════════════════════════════
+    "{name} that's tuff",
+    "{name} no cap you're bad",
+    "on god {name} is free",
+    "{name} down bad rn",
+    "ratio + {name} dead",
+    "{name} caught in 4k",
+    "ngl {name} is garbage",
+    "{name} ain't it chief",
+    "dead game for {name}",
+    "{name} touch grass",
+    "{name} go outside",
+    "{name} get a life",
+    "nt {name} jk ez",
+    "{name} was not the impostor",
+    "{name} has been eliminated",
+    "fatality: {name}",
+    "game over for {name}",
+    "{name} disconnected from life",
+    "{name} has left the chat",
+    "{name} ragequit incoming"
+}
+
+-- ============================================================================
+-- CLANTAG FRAMES
+-- ============================================================================
+
+local CLANTAG_FRAMES = {
+    "M", "Mi", "Mis", "Miss", "Missw", "Misswa", "Misswar", "Missware",
+    "Missware", "Missware", " Missware", "  Missware", "   Missware",
+    "  Missware", " Missware", "Missware", "Missware", "Misswar",
+    "Misswa", "Missw", "Miss", "Mis", "Mi", "M", "", ""
+}
+
+-- ============================================================================
+-- DODATKOWE ULTRA TOXIC MESSAGES (OPCJONALNE)
+-- ============================================================================
+
+local ULTRA_TOXIC_MESSAGES = {
+    -- Te są ekstra toksyczne - używaj na własne ryzyko xD
+    "{name} ur so bad its funny",
+    "{name} please find another game",
+    "{name} how much did u pay for that garbage",
+    "{name} ur cheat is worse than ur aim",
+    "{name} even free cheats hit harder",
+    "{name} did u buy that config or make it urself? both bad",
+    "{name} actual npc gameplay",
+    "{name} are u playing with a steering wheel?",
+    "{name} ur parents are disappointed",
+    "{name} go back to roblox",
+    "{name} minecraft pvp is more ur level",
+    "{name} literal bot farm",
+    "{name} u peaked in silver",
+    "{name} hardstuck trash",
+    "{name} boosted animal",
+    "{name} ur the reason servers have skill gaps",
+    "{name} walking loot drop",
+    "{name} thanks for the free elo",
+    "{name} ur cheat needs a refund",
+    "{name} imagine paying for that lmao"
+}
+
+-- Możesz połączyć obie listy:
+-- for _, msg in ipairs(ULTRA_TOXIC_MESSAGES) do
+--     table_insert(KILL_MESSAGES, msg)
+-- end
+
+-- ============================================================================
+-- OBJECT POOL SYSTEM
+-- ============================================================================
+
+local ObjectPool = {}
+
+-- Pre-allocated vector pool
+ObjectPool.vectors = {}
+ObjectPool.vector_index = 0
+ObjectPool.vector_max = 256
+
+-- Pre-allocated data pool
+ObjectPool.player_data = {}
+ObjectPool.backtrack_records = {}
+
+function ObjectPool.init()
+    -- Pre-allocate vectors
+    for i = 1, ObjectPool.vector_max do
+        ObjectPool.vectors[i] = {x = 0, y = 0, z = 0}
+    end
+    
+    -- Pre-allocate player data structures (64 players max)
+    for i = 1, 64 do
+        ObjectPool.player_data[i] = {
+            idx = 0,
+            velocity = {x = 0, y = 0, z = 0},
+            origin = {x = 0, y = 0, z = 0},
+            eye_pitch = 0,
+            eye_yaw = 0,
+            flags = 0,
+            on_ground = false,
+            ducking = false,
+            duck_amount = 0,
+            body_yaw_pose = 0.5,
+            move_yaw_pose = 0.5,
+            lean_pose = 0.5,
+            lby = 0,
+            sim_time = 0,
+            old_sim_time = 0,
+            health = 0,
+            lby_delta = 0,
+            desync_amount = 0,
+            lean_amount = 0,
+            speed_2d = 0,
+            speed_3d = 0,
+            velocity_angle = 0,
+            is_moving = false,
+            is_slow_walking = false,
+            is_running = false,
+            is_sprinting = false,
+            is_in_air = false,
+            choked_ticks = 0,
+            is_breaking_lc = false,
+            is_high_choke = false,
+            is_defensive = false,
+            is_exploiting = false,
+            anim_layers = {},
+            valid = false
+        }
+        
+        -- Pre-allocate backtrack records per player
+        ObjectPool.backtrack_records[i] = {}
+        for j = 1, CONFIG.backtrack_max_ticks + 2 do
+            ObjectPool.backtrack_records[i][j] = {
+                tick = 0,
+                sim_time = 0,
+                origin = {x = 0, y = 0, z = 0},
+                velocity = {x = 0, y = 0, z = 0},
+                eye_yaw = 0,
+                eye_pitch = 0,
+                lby = 0,
+                desync_amount = 0,
+                duck_amount = 0,
+                flags = 0,
+                choked_ticks = 0,
+                valid = false,
+                resolver_side = 0,
+                resolver_confidence = 0
+            }
+        end
+    end
+end
+
+function ObjectPool.get_vector()
+    ObjectPool.vector_index = (ObjectPool.vector_index % ObjectPool.vector_max) + 1
+    local v = ObjectPool.vectors[ObjectPool.vector_index]
+    v.x, v.y, v.z = 0, 0, 0
+    return v
+end
+
+function ObjectPool.get_player_data(idx)
+    local data = ObjectPool.player_data[idx] or ObjectPool.player_data[1]
+    data.valid = false
+    return data
+end
+
+function ObjectPool.reset_frame()
+    ObjectPool.vector_index = 0
+end
+
+-- Initialize pool
+ObjectPool.init()
+
+-- ============================================================================
+-- CIRCULAR BUFFER (Enhanced)
+-- ============================================================================
+
+local CircularBuffer = {}
+CircularBuffer.__index = CircularBuffer
+
+function CircularBuffer.new(max_size)
+    return setmetatable({
+        data = {},
+        max_size = max_size or 32,
+        head = 0,
+        count = 0,
+        _cache_valid = false,
+        _cache_avg = 0,
+        _cache_var = 0
+    }, CircularBuffer)
+end
+
+function CircularBuffer:push(value)
+    self.head = (self.head % self.max_size) + 1
+    self.data[self.head] = value
+    if self.count < self.max_size then
+        self.count = self.count + 1
+    end
+    self._cache_valid = false
+end
+
+function CircularBuffer:get(i)
+    if i < 1 or i > self.count then return nil end
+    local idx = self.head - i + 1
+    if idx < 1 then idx = idx + self.max_size end
+    return self.data[idx]
+end
+
+function CircularBuffer:get_newest()
+    if self.count == 0 then return nil end
+    return self.data[self.head]
+end
+
+function CircularBuffer:get_oldest()
+    if self.count == 0 then return nil end
+    return self:get(self.count)
+end
+
+function CircularBuffer:get_range(start_idx, end_idx)
+    local result = {}
+    for i = start_idx, math_min(end_idx, self.count) do
+        local val = self:get(i)
+        if val then table_insert(result, val) end
+    end
+    return result
+end
+
+function CircularBuffer:get_all()
+    return self:get_range(1, self.count)
+end
+
+function CircularBuffer:clear()
+    self.data = {}
+    self.head = 0
+    self.count = 0
+    self._cache_valid = false
+end
+
+function CircularBuffer:size()
+    return self.count
+end
+
+function CircularBuffer:is_empty()
+    return self.count == 0
+end
+
+function CircularBuffer:is_full()
+    return self.count >= self.max_size
+end
+
+function CircularBuffer:average(field)
+    if self.count == 0 then return 0 end
+    
+    local sum = 0
+    for i = 1, self.count do
+        local val = self:get(i)
+        if field and type(val) == "table" then
+            sum = sum + (val[field] or 0)
+        elseif type(val) == "number" then
+            sum = sum + val
+        end
+    end
+    return sum / self.count
+end
+
+function CircularBuffer:variance(field)
+    if self.count < 2 then return 0 end
+    local avg = self:average(field)
+    local sum = 0
+    for i = 1, self.count do
+        local val = self:get(i)
+        if field and type(val) == "table" then
+            val = val[field] or 0
+        elseif type(val) ~= "number" then
+            val = 0
+        end
+        sum = sum + (val - avg) * (val - avg)
+    end
+    return sum / self.count
+end
+
+function CircularBuffer:std_dev(field)
+    return math_sqrt(self:variance(field))
+end
+
+function CircularBuffer:min_max(field)
+    if self.count == 0 then return 0, 0 end
+    local min_val, max_val = math.huge, -math.huge
+    for i = 1, self.count do
+        local val = self:get(i)
+        if field and type(val) == "table" then
+            val = val[field] or 0
+        elseif type(val) ~= "number" then
+            val = 0
+        end
+        if val < min_val then min_val = val end
+        if val > max_val then max_val = val end
+    end
+    return min_val, max_val
+end
+
+-- Advanced: Autocorrelation for pattern detection
+function CircularBuffer:autocorrelation(lag, field)
+    if self.count < lag + 2 then return 0 end
+    
+    local avg = self:average(field)
+    local sum_num = 0
+    local sum_den = 0
+    
+    for i = 1, self.count - lag do
+        local val1 = self:get(i)
+        local val2 = self:get(i + lag)
+        
+        if field and type(val1) == "table" then val1 = val1[field] or 0 end
+        if field and type(val2) == "table" then val2 = val2[field] or 0 end
+        if type(val1) ~= "number" then val1 = 0 end
+        if type(val2) ~= "number" then val2 = 0 end
+        
+        sum_num = sum_num + (val1 - avg) * (val2 - avg)
+        sum_den = sum_den + (val1 - avg) * (val1 - avg)
+    end
+    
+    if sum_den == 0 then return 0 end
+    return sum_num / sum_den
+end
+
+-- Frequency analysis (simplified DFT for dominant frequency)
+function CircularBuffer:dominant_frequency(field)
+    if self.count < 8 then return 0, 0 end
+    
+    local max_power = 0
+    local max_freq = 0
+    local n = math_min(32, self.count)
+    
+    -- Test frequencies from 0.1 to 0.5 (Nyquist)
+    for freq = 0.1, 0.5, 0.05 do
+        local real = 0
+        local imag = 0
+        
+        for i = 1, n do
+            local val = self:get(i)
+            if field and type(val) == "table" then val = val[field] or 0 end
+            if type(val) ~= "number" then val = 0 end
+            
+            local angle = 2 * math_pi * freq * i
+            real = real + val * math_cos(angle)
+            imag = imag + val * math_sin(angle)
+        end
+        
+        local power = real * real + imag * imag
+        if power > max_power then
+            max_power = power
+            max_freq = freq
+        end
+    end
+    
+    return max_freq, max_power
+end
+
+-- Sign change frequency
+function CircularBuffer:sign_change_frequency(field)
+    if self.count < 3 then return 0 end
+    
+    local changes = 0
+    local last_sign = 0
+    
+    for i = 1, self.count do
+        local val = self:get(i)
+        if field and type(val) == "table" then val = val[field] or 0 end
+        if type(val) ~= "number" then val = 0 end
+        
+        local curr_sign = val > 0 and 1 or (val < 0 and -1 or 0)
+        if curr_sign ~= 0 and last_sign ~= 0 and curr_sign ~= last_sign then
+            changes = changes + 1
+        end
+        if curr_sign ~= 0 then last_sign = curr_sign end
+    end
+    
+    return changes / (self.count - 1)
+end
+
+-- ============================================================================
+-- UTILITY FUNCTIONS
+-- ============================================================================
+
+local utils = {}
+
+function utils.clamp(val, min_val, max_val)
+    if val ~= val then return min_val end
+    return math_max(min_val, math_min(max_val, val))
+end
+
+function utils.normalize_yaw(yaw)
+    if yaw ~= yaw then return 0 end
+    while yaw > 180 do yaw = yaw - 360 end
+    while yaw < -180 do yaw = yaw + 360 end
+    return yaw
+end
+
+function utils.angle_diff(a, b)
+    return utils.normalize_yaw(a - b)
+end
+
+function utils.lerp(a, b, t)
+    return a + (b - a) * utils.clamp(t, 0, 1)
+end
+
+function utils.safe_div(a, b, default)
+    default = default or 0
+    if b == 0 or b ~= b or a ~= a then return default end
+    return a / b
+end
+
+function utils.sign(x)
+    if x > 0 then return 1
+    elseif x < 0 then return -1
+    else return 0 end
+end
+
+function utils.approach(current, target, speed)
+    local diff = target - current
+    if math_abs(diff) <= speed then
+        return target
+    end
+    return current + utils.sign(diff) * speed
+end
+
+function utils.vec2_length(x, y)
+    return math_sqrt(x * x + y * y)
+end
+
+function utils.vec3_length(x, y, z)
+    return math_sqrt(x * x + y * y + z * z)
+end
+
+function utils.vec2_dot(x1, y1, x2, y2)
+    return x1 * x2 + y1 * y2
+end
+
+function utils.vec3_dot(x1, y1, z1, x2, y2, z2)
+    return x1 * x2 + y1 * y2 + z1 * z2
+end
+
+function utils.vec2_angle(x, y)
+    return math_deg(math_atan2(y, x))
+end
+
+function utils.vec3_distance(x1, y1, z1, x2, y2, z2)
+    local dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+    return math_sqrt(dx*dx + dy*dy + dz*dz)
+end
+
+function utils.vec2_distance(x1, y1, x2, y2)
+    local dx, dy = x2 - x1, y2 - y1
+    return math_sqrt(dx*dx + dy*dy)
+end
+
+function utils.side_to_yaw(side)
+    if side == SIDE.LEFT then return -58
+    elseif side == SIDE.RIGHT then return 58
+    else return 0 end
+end
+
+function utils.side_name(side)
+    if side == SIDE.LEFT then return "LEFT"
+    elseif side == SIDE.RIGHT then return "RIGHT"
+    else return "CENTER" end
+end
+
+function utils.flip_side(side)
+    if side == SIDE.CENTER then return SIDE.LEFT end
+    return side * -1
+end
+
+function utils.random_side()
+    return math_random() > 0.5 and SIDE.LEFT or SIDE.RIGHT
+end
+
+function utils.weighted_random_side(left_weight, right_weight)
+    local total = left_weight + right_weight
+    if total <= 0 then return utils.random_side() end
+    return math_random() < (left_weight / total) and SIDE.LEFT or SIDE.RIGHT
+end
+
+function utils.cycle_side(index, pattern)
+    pattern = pattern or {SIDE.LEFT, SIDE.RIGHT, SIDE.CENTER}
+    return pattern[(index % #pattern) + 1]
+end
+
+function utils.get_random_kill_message()
+    return KILL_MESSAGES[math_random(1, #KILL_MESSAGES)]
+end
+
+function utils.time_to_ticks(time)
+    return math_floor(time / globals.tickinterval() + 0.5)
+end
+
+function utils.ticks_to_time(ticks)
+    return ticks * globals.tickinterval()
+end
+
+function utils.is_valid_float(f)
+    return f == f and f ~= math.huge and f ~= -math.huge
+end
+
+function utils.smooth_value(current, target, speed)
+    if not utils.is_valid_float(current) then return target end
+    if not utils.is_valid_float(target) then return current end
+    return current + (target - current) * utils.clamp(speed, 0, 1)
+end
+
+-- ============================================================================
+-- ENTITY CACHE (Per-tick)
+-- ============================================================================
+
+local EntityCache = {
+    data = {},
+    tick = -1
+}
+
+function EntityCache.clear()
+    EntityCache.data = {}
+    EntityCache.tick = globals.tickcount()
+end
+
+function EntityCache.get_key(idx, prop, ...)
+    local args = {...}
+    local key = tostring(idx) .. "_" .. prop
+    for i = 1, #args do
+        key = key .. "_" .. tostring(args[i])
+    end
+    return key
+end
+
+function EntityCache.get_prop(idx, prop, ...)
+    local current_tick = globals.tickcount()
+    
+    if EntityCache.tick ~= current_tick then
+        EntityCache.clear()
+    end
+    
+    local key = EntityCache.get_key(idx, prop, ...)
+    if EntityCache.data[key] ~= nil then
+        return unpack(EntityCache.data[key])
+    end
+    
+    local result = {entity.get_prop(idx, prop, ...)}
+    if result[1] ~= nil then
+        EntityCache.data[key] = result
+    end
+    
+    return unpack(result)
+end
+
+local function get_prop(idx, prop, ...)
+    return EntityCache.get_prop(idx, prop, ...)
+end
+
+-- ============================================================================
+-- ENTITY HELPERS
+-- ============================================================================
+
+local function is_valid_player(idx)
+    if not idx or idx == 0 then return false end
+    if not entity.is_alive(idx) then return false end
+    return entity.get_player_name(idx) ~= nil
+end
+
+local function is_enemy(idx)
+    if not is_valid_player(idx) then return false end
+    return entity.is_enemy(idx)
+end
+
+local function get_local_player()
+    local lp = entity.get_local_player()
+    if not lp or not entity.is_alive(lp) then return nil end
+    return lp
+end
+
+-- ============================================================================
+-- PLAYER DATA EXTRACTION (Object Pool based)
+-- ============================================================================
+
+local function extract_player_data(idx)
+    if not is_valid_player(idx) then return nil end
+    
+    local data = ObjectPool.get_player_data(idx)
+    data.idx = idx
+    data.valid = true
+    
+    -- Velocity
+    local vx, vy, vz = get_prop(idx, "m_vecVelocity")
+    vx, vy, vz = vx or 0, vy or 0, vz or 0
+    data.velocity.x, data.velocity.y, data.velocity.z = vx, vy, vz
+    data.speed_2d = utils.vec2_length(vx, vy)
+    data.speed_3d = utils.vec3_length(vx, vy, vz)
+    data.velocity_angle = utils.vec2_angle(vx, vy)
+    
+    -- Position
+    local px, py, pz = get_prop(idx, "m_vecOrigin")
+    data.origin.x = px or 0
+    data.origin.y = py or 0
+    data.origin.z = pz or 0
+    
+    -- Eye angles
+    local pitch, yaw = get_prop(idx, "m_angEyeAngles")
+    data.eye_pitch = pitch or 0
+    data.eye_yaw = yaw or 0
+    
+    -- Flags
+    local flags = get_prop(idx, "m_fFlags") or 0
+    data.flags = flags
+    data.on_ground = bit_band(flags, 1) == 1
+    data.ducking = bit_band(flags, 2) == 2
+    
+    -- Duck
+    data.duck_amount = get_prop(idx, "m_flDuckAmount") or 0
+    
+    -- Pose parameters
+    data.body_yaw_pose = get_prop(idx, "m_flPoseParameter", 11) or 0.5
+    data.move_yaw_pose = get_prop(idx, "m_flPoseParameter", 0) or 0.5
+    data.lean_pose = get_prop(idx, "m_flPoseParameter", 12) or 0.5
+    
+    -- LBY
+    data.lby = get_prop(idx, "m_flLowerBodyYawTarget") or 0
+    
+    -- Simulation time
+    data.sim_time = get_prop(idx, "m_flSimulationTime") or 0
+    data.old_sim_time = get_prop(idx, "m_flOldSimulationTime") or 0
+    
+    -- Health
+    data.health = get_prop(idx, "m_iHealth") or 0
+    
+    -- Calculated values
+    data.lby_delta = utils.angle_diff(data.eye_yaw, data.lby)
+    data.desync_amount = (data.body_yaw_pose - 0.5) * 120
+    data.lean_amount = (data.lean_pose - 0.5) * 2
+    
+    data.is_moving = data.speed_2d > CONFIG.lby_velocity_threshold
+    data.is_slow_walking = data.speed_2d > 3 and data.speed_2d < 80
+    data.is_running = data.speed_2d > 150
+    data.is_sprinting = data.speed_2d > 220
+    data.is_in_air = not data.on_ground
+    
+    -- Choke detection
+    local tick_delta = data.sim_time - data.old_sim_time
+    data.choked_ticks = math_max(0, math_floor(tick_delta / globals.tickinterval() + 0.5) - 1)
+    data.is_breaking_lc = data.choked_ticks > 10
+    data.is_high_choke = data.choked_ticks > CONFIG.safe_point_choke_threshold
+    data.is_defensive = data.choked_ticks > 12 or math_abs(data.eye_pitch) > 87
+    data.is_exploiting = data.choked_ticks > 14
+    
+    return data
+end
+
+-- ============================================================================
+-- BACKTRACK SYSTEM
+-- ============================================================================
+
+local BacktrackSystem = {
+    records = {},  -- [player_idx][tick_offset] = record
+    current_tick = 0
+}
+
+function BacktrackSystem.init()
+    for i = 1, 64 do
+        BacktrackSystem.records[i] = {
+            head = 0,
+            count = 0,
+            data = ObjectPool.backtrack_records[i]
+        }
+    end
+end
+
+function BacktrackSystem.store(idx, data, state)
+    if not data or not data.valid then return end
+    if not BacktrackSystem.records[idx] then
+        BacktrackSystem.records[idx] = {
+            head = 0,
+            count = 0,
+            data = ObjectPool.backtrack_records[idx] or {}
+        }
+    end
+    
+    local record_list = BacktrackSystem.records[idx]
+    local max_records = CONFIG.backtrack_max_ticks + 2
+    
+    record_list.head = (record_list.head % max_records) + 1
+    if record_list.count < max_records then
+        record_list.count = record_list.count + 1
+    end
+    
+    local record = record_list.data[record_list.head]
+    if not record then
+        record_list.data[record_list.head] = {}
+        record = record_list.data[record_list.head]
+    end
+    
+    record.tick = globals.tickcount()
+    record.sim_time = data.sim_time
+    record.origin = record.origin or {}
+    record.origin.x = data.origin.x
+    record.origin.y = data.origin.y
+    record.origin.z = data.origin.z
+    record.velocity = record.velocity or {}
+    record.velocity.x = data.velocity.x
+    record.velocity.y = data.velocity.y
+    record.velocity.z = data.velocity.z
+    record.eye_yaw = data.eye_yaw
+    record.eye_pitch = data.eye_pitch
+    record.lby = data.lby
+    record.desync_amount = data.desync_amount
+    record.duck_amount = data.duck_amount
+    record.flags = data.flags
+    record.choked_ticks = data.choked_ticks
+    record.valid = true
+    
+    -- Store resolver prediction at this moment
+    if state then
+        record.resolver_side = state.current_side
+        record.resolver_confidence = state.current_confidence
+    else
+        record.resolver_side = SIDE.CENTER
+        record.resolver_confidence = 0.5
+    end
+end
+
+function BacktrackSystem.get_record(idx, offset)
+    local record_list = BacktrackSystem.records[idx]
+    if not record_list or record_list.count == 0 then return nil end
+    
+    if offset < 1 or offset > record_list.count then return nil end
+    
+    local actual_idx = record_list.head - offset + 1
+    if actual_idx < 1 then actual_idx = actual_idx + (CONFIG.backtrack_max_ticks + 2) end
+    
+    local record = record_list.data[actual_idx]
+    if record and record.valid then
+        return record
+    end
+    return nil
+end
+
+function BacktrackSystem.get_valid_records(idx)
+    local results = {}
+    local record_list = BacktrackSystem.records[idx]
+    if not record_list then return results end
+    
+    local current_time = globals.curtime()
+    local max_lag = 0.2  -- 200ms max backtrack
+    
+    for i = 1, record_list.count do
+        local record = BacktrackSystem.get_record(idx, i)
+        if record and record.valid then
+            local age = current_time - record.sim_time
+            if age >= 0 and age <= max_lag then
+                table_insert(results, {
+                    record = record,
+                    offset = i,
+                    age = age
+                })
+            end
+        end
+    end
+    
+    return results
+end
+
+function BacktrackSystem.get_best_record(idx, state, local_data)
+    local valid_records = BacktrackSystem.get_valid_records(idx)
+    if #valid_records == 0 then return nil, 0 end
+    
+    local best_record = nil
+    local best_score = -1
+    local best_offset = 0
+    
+    for _, entry in ipairs(valid_records) do
+        local record = entry.record
+        local score = 0
+        
+        -- Preferuj rekord z wysoką pewnością resolvera
+        score = score + record.resolver_confidence * 40
+        
+        -- Preferuj świeże rekordy
+        local freshness = 1 - (entry.age / 0.2)
+        score = score + freshness * 20
+        
+        -- Preferuj niski choke
+        if record.choked_ticks < 3 then
+            score = score + 15
+        elseif record.choked_ticks < 6 then
+            score = score + 8
+        end
+        
+        -- Preferuj stojących (łatwiejsi do trafienia)
+        local speed = utils.vec2_length(record.velocity.x, record.velocity.y)
+        if CONFIG.backtrack_prefer_standing and speed < 10 then
+            score = score + 12
+        elseif CONFIG.backtrack_prefer_moving and speed > 100 then
+            score = score + 8
+        end
+        
+        -- Preferuj niski desync
+        if math_abs(record.desync_amount) < 30 then
+            score = score + 10
+        end
+        
+        if score > best_score then
+            best_score = score
+            best_record = record
+            best_offset = entry.offset
+        end
+    end
+    
+    return best_record, best_offset
+end
+
+function BacktrackSystem.clear(idx)
+    if BacktrackSystem.records[idx] then
+        BacktrackSystem.records[idx].count = 0
+        BacktrackSystem.records[idx].head = 0
+        for j = 1, CONFIG.backtrack_max_ticks + 2 do
+            if BacktrackSystem.records[idx].data[j] then
+                BacktrackSystem.records[idx].data[j].valid = false
+            end
+        end
+    end
+end
+
+BacktrackSystem.init()
+
+-- ============================================================================
+-- SHOT RECORD
+-- ============================================================================
+
+local ShotRecord = {}
+ShotRecord.__index = ShotRecord
+
+function ShotRecord.new(params)
+    return setmetatable({
+        tick = globals.tickcount(),
+        time = globals.realtime(),
+        hit = params.hit or false,
+        hitgroup = params.hitgroup or 0,
+        damage = params.damage or 0,
+        predicted_side = params.predicted_side or SIDE.CENTER,
+        resolver_mode = params.resolver_mode or MODE.IDLE,
+        target_velocity = params.target_velocity or 0,
+        target_in_air = params.target_in_air or false,
+        was_peeking = params.was_peeking or false,
+        reason = params.reason or nil,
+        brute_stage = params.brute_stage or 0,
+        was_defensive = params.was_defensive or false,
+        choked_ticks = params.choked_ticks or 0,
+        backtrack_offset = params.backtrack_offset or 0,
+        desync_amount = params.desync_amount or 0,
+        pred_error_type = params.pred_error_type or PRED_ERROR_REASON.UNKNOWN
+    }, ShotRecord)
+end
+
+function ShotRecord:is_prediction_error()
+    return self.reason == "prediction error" or self.reason == "?"
+end
+
+function ShotRecord:is_spread_miss()
+    return self.reason == "spread"
+end
+
+function ShotRecord:analyze_error()
+    if not self:is_prediction_error() then
+        return PRED_ERROR_REASON.SPREAD
+    end
+    
+    if self.choked_ticks > CONFIG.pred_error_choke_threshold then
+        return PRED_ERROR_REASON.CHOKE
+    end
+    
+    if self.target_velocity > CONFIG.pred_error_velocity_threshold then
+        return PRED_ERROR_REASON.VELOCITY
+    end
+    
+    if self.resolver_mode == MODE.ROLL then
+        return PRED_ERROR_REASON.ROLL_MISS
+    end
+    
+    if self.resolver_mode == MODE.LBY then
+        return PRED_ERROR_REASON.LBY_BREAK
+    end
+    
+    if math_abs(self.desync_amount) > 50 then
+        return PRED_ERROR_REASON.DESYNC
+    end
+    
+    return PRED_ERROR_REASON.RESOLVER_FAIL
+end
+
+-- ============================================================================
+-- PLAYER STATE
+-- ============================================================================
+
+local PlayerState = {}
+PlayerState.__index = PlayerState
+
+function PlayerState.new(idx)
+    local self = setmetatable({}, PlayerState)
+    
+    self.idx = idx
+    
+    -- History buffers
+    self.yaw_history = CircularBuffer.new(CONFIG.max_history)
+    self.desync_history = CircularBuffer.new(CONFIG.max_history)
+    self.velocity_history = CircularBuffer.new(CONFIG.max_history)
+    self.position_history = CircularBuffer.new(CONFIG.max_position_history)
+    self.shot_history = CircularBuffer.new(CONFIG.max_shot_history)
+    self.lby_history = CircularBuffer.new(32)
+    
+    -- Per-mode tracking
+    self.mode_shots = {}
+    self.mode_hits = {}
+    self.mode_success_rate = {}
+    for mode = 0, 20 do
+        self.mode_shots[mode] = 0
+        self.mode_hits[mode] = 0
+        self.mode_success_rate[mode] = 0.5
+    end
+    
+    -- Stats
+    self.total_shots = 0
+    self.total_hits = 0
+    self.head_hits = 0
+    self.body_hits = 0
+    self.prediction_errors = 0
+    
+    -- Miss tracking per stage
+    self.stage_misses = {}
+    for i = 0, CONFIG.brute_stages do
+        self.stage_misses[i] = {count = 0, last_tick = 0}
+    end
+    
+    -- Current state
+    self.current_side = SIDE.CENTER
+    self.current_mode = MODE.IDLE
+    self.current_confidence = 0.5
+    self.brute_stage = 0
+    self.misses_in_row = 0
+    self.hits_in_row = 0
+    
+    -- Mode candidates (for smart selection)
+    self.mode_candidates = {}
+    self.last_mode_scores = {}
+    
+    -- Cache
+    self.last_data = nil
+    self.last_resolve_tick = -1
+    self.cached_result = {side = SIDE.CENTER, confidence = 0.5, mode = MODE.IDLE}
+    
+    -- LBY tracking
+    self.lby_last_value = 0
+    self.lby_last_update = 0
+    self.lby_next_update = 0
+    self.lby_was_moving = false
+    self.lby_breaks_detected = 0
+    self.lby_update_count = 0
+    
+    -- Pattern detection
+    self.detected_pattern = PATTERN.UNKNOWN
+    self.pattern_confidence = 0.3
+    self.pattern_frequency = 0
+    
+    -- Movement tracking
+    self.last_move_side = SIDE.CENTER
+    self.last_move_time = 0
+    self.last_move_yaw = 0
+    self.last_acceleration = 0
+    self.velocity_prediction = {x = 0, y = 0}
+    
+    -- Peek tracking
+    self.is_peeking = false
+    self.peek_start_time = 0
+    self.peek_direction = SIDE.CENTER
+    self.peek_confidence = 0
+    self.peek_start_origin = nil
+    self.peek_angle_to_enemy = 0
+    
+    -- Detection flags
+    self.roll_detected = false
+    self.roll_side = SIDE.CENTER
+    self.roll_misses = 0
+    self.roll_confidence = 0
+    
+    self.flick_detected = false
+    self.flick_original_yaw = 0
+    
+    self.anti_brute_detected = false
+    self.anti_brute_confidence = 0
+    
+    self.defensive_detected = false
+    self.defensive_type = "none"
+    
+    self.spin_detected = false
+    self.spin_speed = 0
+    
+    -- Resolver lock
+    self.resolver_locked = false
+    self.lock_tick = 0
+    self.locked_side = SIDE.CENTER
+    self.lock_duration = CONFIG.lock_ticks_normal
+    
+    -- Prediction error tracking
+    self.pred_error_streak = 0
+    self.last_pred_error_tick = 0
+    self.pred_error_types = {}
+    self.dominant_error_type = PRED_ERROR_REASON.UNKNOWN
+    
+    -- Hit tracking
+    self.last_hit_side = SIDE.CENTER
+    self.last_hit_mode = MODE.IDLE
+    self.last_hit_tick = 0
+    self.side_hit_counts = {[SIDE.LEFT] = 0, [SIDE.CENTER] = 0, [SIDE.RIGHT] = 0}
+    
+    -- Backtrack
+    self.best_backtrack_offset = 0
+    self.backtrack_success_rate = 0.5
+    
+    return self
+end
+
+function PlayerState:update_history(data)
+    if not data or not data.valid then return end
+    
+    self.yaw_history:push(data.eye_yaw)
+    self.desync_history:push(data.desync_amount)
+    self.velocity_history:push(data.speed_2d)
+    self.lby_history:push(data.lby)
+    
+    self.position_history:push({
+        tick = globals.tickcount(),
+        time = globals.realtime(),
+        origin = {x = data.origin.x, y = data.origin.y, z = data.origin.z},
+        velocity = {x = data.velocity.x, y = data.velocity.y, z = data.velocity.z},
+        eye_yaw = data.eye_yaw,
+        sim_time = data.sim_time
+    })
+    
+    -- Velocity prediction
+    local prev_vel = self.velocity_history:get(2) or 0
+    local accel = (data.speed_2d - prev_vel) / math_max(0.001, globals.frametime())
+    self.last_acceleration = accel
+    
+    -- Predict next velocity
+    self.velocity_prediction.x = data.velocity.x + data.velocity.x * 0.1
+    self.velocity_prediction.y = data.velocity.y + data.velocity.y * 0.1
+    
+    self.last_data = data
+    
+    -- Store backtrack record
+    BacktrackSystem.store(self.idx, data, self)
+end
+
+function PlayerState:add_shot(record)
+    self.shot_history:push(record)
+    self.total_shots = self.total_shots + 1
+    
+    -- Update per-mode stats
+    local mode = record.resolver_mode
+    self.mode_shots[mode] = (self.mode_shots[mode] or 0) + 1
+    
+    if record.hit then
+        self.total_hits = self.total_hits + 1
+        self.hits_in_row = self.hits_in_row + 1
+        self.misses_in_row = 0
+        self.pred_error_streak = 0
+        
+        self.mode_hits[mode] = (self.mode_hits[mode] or 0) + 1
+        
+        -- Hitgroup tracking
+        if record.hitgroup == 1 then
+            self.head_hits = self.head_hits + 1
+        elseif record.hitgroup >= 2 and record.hitgroup <= 3 then
+            self.body_hits = self.body_hits + 1
+        end
+        
+        -- Track successful side/mode
+        self.last_hit_side = record.predicted_side
+        self.last_hit_mode = record.resolver_mode
+        self.last_hit_tick = globals.tickcount()
+        self.side_hit_counts[record.predicted_side] = (self.side_hit_counts[record.predicted_side] or 0) + 1
+        
+        -- Lock on success
+        self:lock(record.predicted_side, CONFIG.lock_ticks_hit)
+        
+        -- Reset bruteforce
+        self:reset_brute()
+        
+    else
+        self.misses_in_row = self.misses_in_row + 1
+        self.hits_in_row = 0
+        
+        -- Analyze prediction error
+        if record:is_prediction_error() then
+            self.prediction_errors = self.prediction_errors + 1
+            self.pred_error_streak = self.pred_error_streak + 1
+            self.last_pred_error_tick = globals.tickcount()
+            
+            local error_type = record:analyze_error()
+            record.pred_error_type = error_type
+            self.pred_error_types[error_type] = (self.pred_error_types[error_type] or 0) + 1
+            self:update_dominant_error()
+        else
+            self.pred_error_streak = 0
+        end
+        
+        -- Stage miss tracking
+        local stage = self.brute_stage
+        self.stage_misses[stage] = self.stage_misses[stage] or {count = 0, last_tick = 0}
+        self.stage_misses[stage].count = self.stage_misses[stage].count + 1
+        self.stage_misses[stage].last_tick = globals.tickcount()
+        
+        -- Advance bruteforce (skip spread misses)
+        if not record:is_spread_miss() then
+            self:advance_brute()
+        end
+        
+        -- Roll miss tracking
+        if self.current_mode == MODE.ROLL then
+            self.roll_misses = self.roll_misses + 1
+        end
+    end
+    
+    -- Update mode success rates
+    self:update_mode_success_rates()
+end
+
+function PlayerState:update_mode_success_rates()
+    for mode = 0, 20 do
+        local shots = self.mode_shots[mode] or 0
+        local hits = self.mode_hits[mode] or 0
+        
+        if shots > 0 then
+            local raw_rate = hits / shots
+            -- Blend with prior (0.5) for stability
+            local weight = math_min(shots / 10, 1)
+            self.mode_success_rate[mode] = 0.5 * (1 - weight) + raw_rate * weight
+        end
+    end
+end
+
+function PlayerState:update_dominant_error()
+    local max_count = 0
+    local dominant = PRED_ERROR_REASON.UNKNOWN
+    
+    for error_type, count in pairs(self.pred_error_types) do
+        if count > max_count then
+            max_count = count
+            dominant = error_type
+        end
+    end
+    
+    self.dominant_error_type = dominant
+end
+
+function PlayerState:reset_brute()
+    self.brute_stage = 0
+    self.roll_misses = 0
+    self.resolver_locked = false
+    
+    for i = 0, CONFIG.brute_stages do
+        self.stage_misses[i] = {count = 0, last_tick = 0}
+    end
+end
+
+function PlayerState:advance_brute()
+    local attempts = 0
+    local max_attempts = CONFIG.brute_stages + 1
+    
+    repeat
+        self.brute_stage = (self.brute_stage + 1) % (CONFIG.brute_stages + 1)
+        attempts = attempts + 1
+        
+        local stage_data = self.stage_misses[self.brute_stage]
+        if stage_data then
+            local ticks_since = globals.tickcount() - (stage_data.last_tick or 0)
+            local should_skip = stage_data.count >= CONFIG.miss_memory and ticks_since < CONFIG.stage_cooldown
+            if not should_skip then break end
+        else
+            break
+        end
+    until attempts >= max_attempts
+end
+
+function PlayerState:is_locked()
+    if not self.resolver_locked then return false end
+    
+    local ticks_since = globals.tickcount() - self.lock_tick
+    if ticks_since > self.lock_duration then
+        self.resolver_locked = false
+        return false
+    end
+    
+    return true
+end
+
+function PlayerState:lock(side, duration)
+    self.resolver_locked = true
+    self.lock_tick = globals.tickcount()
+    self.locked_side = side
+    self.lock_duration = duration or CONFIG.lock_ticks_normal
+end
+
+function PlayerState:unlock()
+    self.resolver_locked = false
+end
+
+function PlayerState:should_use_cache()
+    return self.last_resolve_tick == globals.tickcount()
+end
+
+function PlayerState:get_cached()
+    return self.cached_result.side, self.cached_result.confidence, self.cached_result.mode
+end
+
+function PlayerState:cache(side, confidence, mode)
+    self.last_resolve_tick = globals.tickcount()
+    self.cached_result = {side = side, confidence = confidence, mode = mode}
+    self.current_side = side
+    self.current_confidence = confidence
+    self.current_mode = mode
+end
+
+function PlayerState:get_hit_rate()
+    if self.total_shots == 0 then return 0.5 end
+    return self.total_hits / self.total_shots
+end
+
+function PlayerState:get_pred_error_rate()
+    if self.total_shots == 0 then return 0 end
+    return self.prediction_errors / self.total_shots
+end
+
+function PlayerState:has_recent_pred_error()
+    local ticks_since = globals.tickcount() - self.last_pred_error_tick
+    return ticks_since < CONFIG.pred_error_memory_ticks
+end
+
+function PlayerState:has_recent_hit()
+    local ticks_since = globals.tickcount() - self.last_hit_tick
+    return ticks_since < 64
+end
+
+function PlayerState:get_best_side()
+    local best = SIDE.CENTER
+    local best_count = 0
+    
+    for side, count in pairs(self.side_hit_counts) do
+        if count > best_count then
+            best_count = count
+            best = side
+        end
+    end
+    
+    return best, best_count
+end
+
+function PlayerState:get_mode_score(mode)
+    local base = MODE_BASE_SCORES[mode] or 0.5
+    local success = self.mode_success_rate[mode] or 0.5
+    
+    -- Blend base score with historical success
+    return base * 0.6 + success * 0.4
+end
+
+-- ============================================================================
+-- ADVANCED PATTERN DETECTOR
+-- ============================================================================
+
+local PatternDetector = {}
+
+function PatternDetector.analyze(state)
+    local yaw_hist = state.yaw_history
+    local desync_hist = state.desync_history
+    
+    if yaw_hist:size() < 8 then
+        return PATTERN.UNKNOWN, 0.3, 0
+    end
+    
+    -- Compute multiple metrics
+    local results = {}
+    
+    -- 1. Jitter check (with frequency analysis)
+    local is_jitter, jitter_intensity, jitter_freq = PatternDetector.detect_jitter_advanced(yaw_hist)
+    if is_jitter then
+        table_insert(results, {
+            pattern = PATTERN.JITTER,
+            confidence = utils.clamp(0.55 + jitter_intensity * 0.4, 0.55, 0.92),
+            frequency = jitter_freq
+        })
+    end
+    
+    -- 2. Micro-jitter (small oscillations)
+    local is_micro, micro_conf = PatternDetector.detect_micro_jitter(desync_hist)
+    if is_micro then
+        table_insert(results, {
+            pattern = PATTERN.MICRO_JITTER,
+            confidence = micro_conf,
+            frequency = 0.5
+        })
+    end
+    
+    -- 3. Spin check
+    local is_spin, spin_speed = PatternDetector.detect_spin(yaw_hist)
+    if is_spin then
+        table_insert(results, {
+            pattern = PATTERN.SPIN,
+            confidence = 0.88,
+            frequency = spin_speed / 360
+        })
+    end
+    
+    -- 4. Switch check
+    local is_switch, switch_freq = PatternDetector.detect_switch(desync_hist)
+    if is_switch then
+        table_insert(results, {
+            pattern = PATTERN.SWITCH,
+            confidence = 0.70 + switch_freq * 0.15,
+            frequency = switch_freq
+        })
+    end
+    
+    -- 5. Static check
+    local is_static, static_conf = PatternDetector.detect_static_advanced(desync_hist)
+    if is_static then
+        table_insert(results, {
+            pattern = PATTERN.STATIC,
+            confidence = static_conf,
+            frequency = 0
+        })
+    end
+    
+    -- 6. Low delta
+    local is_low_delta = PatternDetector.detect_low_delta(desync_hist)
+    if is_low_delta then
+        table_insert(results, {
+            pattern = PATTERN.LOW_DELTA,
+            confidence = 0.72,
+            frequency = 0
+        })
+    end
+    
+    -- Select best pattern
+    if #results == 0 then
+        return PATTERN.DYNAMIC, 0.45, 0
+    end
+    
+    table_sort(results, function(a, b) return a.confidence > b.confidence end)
+    local best = results[1]
+    
+    return best.pattern, best.confidence, best.frequency
+end
+
+function PatternDetector.detect_jitter_advanced(history)
+    if history:size() < 6 then return false, 0, 0 end
+    
+    local size = math_min(16, history:size())
+    local changes = 0
+    local total_delta = 0
+    local sign_changes = 0
+    local last_diff = 0
+    local deltas = {}
+    
+    for i = 2, size do
+        local curr = history:get(i - 1) or 0
+        local prev = history:get(i) or 0
+        local diff = utils.angle_diff(curr, prev)
+        
+        table_insert(deltas, diff)
+        
+        if math_abs(diff) > CONFIG.jitter_threshold then
+            changes = changes + 1
+            total_delta = total_delta + math_abs(diff)
+        end
+        
+        if last_diff ~= 0 and utils.sign(diff) ~= utils.sign(last_diff) and math_abs(diff) > 12 then
+            sign_changes = sign_changes + 1
+        end
+        last_diff = diff
+    end
+    
+    -- Use autocorrelation for periodicity detection
+    local autocorr = history:autocorrelation(2)
+    local has_periodicity = autocorr < -0.3  -- Negative correlation = alternating
+    
+    -- Frequency analysis
+    local dom_freq, _ = history:dominant_frequency()
+    local is_jitter_freq = dom_freq >= CONFIG.jitter_frequency_min and dom_freq <= CONFIG.jitter_frequency_max
+    
+    local is_jitter = (changes >= 3 and sign_changes >= 2) or (has_periodicity and is_jitter_freq)
+    local intensity = utils.safe_div(total_delta, math_max(changes, 1), 0) / 180
+    
+    return is_jitter, intensity, dom_freq
+end
+
+function PatternDetector.detect_micro_jitter(history)
+    if history:size() < 8 then return false, 0 end
+    
+    local size = math_min(12, history:size())
+    local small_changes = 0
+    
+    for i = 2, size do
+        local curr = history:get(i - 1) or 0
+        local prev = history:get(i) or 0
+        local diff = math_abs(curr - prev)
+        
+        if diff > 3 and diff < 20 then
+            small_changes = small_changes + 1
+        end
+    end
+    
+    local rate = small_changes / (size - 1)
+    return rate > 0.6, 0.55 + rate * 0.25
+end
+
+function PatternDetector.detect_spin(history)
+    if history:size() < 12 then return false, 0 end
+    
+    local total_rotation = 0
+    local size = math_min(12, history:size())
+    
+    for i = 2, size do
+        local curr = history:get(i - 1) or 0
+        local prev = history:get(i) or 0
+        total_rotation = total_rotation + utils.angle_diff(curr, prev)
+    end
+    
+    local is_spin = math_abs(total_rotation) > CONFIG.spin_threshold
+    local speed = math_abs(total_rotation) / size
+    
+    return is_spin, speed
+end
+
+function PatternDetector.detect_switch(history)
+    if history:size() < 10 then return false, 0 end
+    
+    local freq = history:sign_change_frequency()
+    
+    return freq >= CONFIG.switch_frequency_threshold, freq
+end
+
+function PatternDetector.detect_static_advanced(history)
+    if history:size() < 8 then return false, 0 end
+    
+    local variance = history:variance()
+    local std_dev = math_sqrt(variance)
+    
+    local is_static = variance < CONFIG.static_variance
+    local confidence = utils.clamp(1 - (std_dev / 30), 0.5, 0.92)
+    
+    return is_static, confidence
+end
+
+function PatternDetector.detect_low_delta(history)
+    if history:size() < 6 then return false end
+    
+    local low_count = 0
+    local size = math_min(10, history:size())
+    
+    for i = 1, size do
+        local val = history:get(i) or 0
+        if math_abs(val) < 25 then
+            low_count = low_count + 1
+        end
+    end
+    
+    return (low_count / size) > 0.7
+end
+
+-- ============================================================================
+-- LBY PREDICTOR (Tick-perfect)
+-- ============================================================================
+
+local LBYPredictor = {}
+
+function LBYPredictor.update(state, data)
+    if not data or not data.valid then return end
+    
+    local current_time = globals.curtime()
+    
+    -- LBY change detection
+    local lby_diff = math_abs(utils.angle_diff(data.lby, state.lby_last_value))
+    if lby_diff > CONFIG.lby_break_threshold then
+        state.lby_last_value = data.lby
+        state.lby_last_update = current_time
+        state.lby_breaks_detected = state.lby_breaks_detected + 1
+        state.lby_update_count = state.lby_update_count + 1
+    end
+    
+    -- Update timing prediction
+    if data.is_moving then
+        state.lby_was_moving = true
+        state.lby_next_update = current_time + CONFIG.lby_update_moving
+    elseif state.lby_was_moving then
+        -- Just stopped moving
+        state.lby_was_moving = false
+        state.lby_next_update = current_time + CONFIG.lby_update_moving
+    elseif current_time >= state.lby_next_update then
+        state.lby_next_update = current_time + CONFIG.lby_update_standing
+    end
+end
+
+function LBYPredictor.predict(state, data)
+    if not data or data.is_moving then
+        return nil, 0, false
+    end
+    
+    local current_time = globals.curtime()
+    local time_to_update = state.lby_next_update - current_time
+    
+    -- LBY update window
+    local in_window = time_to_update <= CONFIG.lby_prediction_window and 
+                      time_to_update >= -CONFIG.lby_prediction_window
+    
+    if in_window then
+        local side = SIDE.CENTER
+        local lby_delta = data.lby_delta
+        
+        if lby_delta > 30 then
+            side = SIDE.RIGHT
+        elseif lby_delta < -30 then
+            side = SIDE.LEFT
+        end
+        
+        -- Higher confidence if player rarely breaks LBY
+        local break_rate = state.lby_breaks_detected / math_max(1, state.lby_update_count)
+        local confidence = 0.88 - break_rate * 0.2
+        
+        return side, confidence, true
+    end
+    
+    return nil, 0, false
+end
+
+function LBYPredictor.get_flick_probability(state)
+    if state.lby_update_count < 3 then return 0.3 end
+    
+    local break_rate = state.lby_breaks_detected / state.lby_update_count
+    return utils.clamp(break_rate, 0, 0.8)
+end
+
+-- ============================================================================
+-- ROLL DETECTOR (Dynamic Thresholds)
+-- ============================================================================
+
+local RollDetector = {}
+
+function RollDetector.detect(state, data)
+    if not data or not data.valid then return false, SIDE.CENTER, 0 end
+    
+    -- Dynamic threshold based on state
+    local threshold = CONFIG.roll_threshold_base
+    
+    if data.is_in_air then
+        threshold = CONFIG.roll_threshold_air
+    elseif data.is_moving then
+        threshold = CONFIG.roll_threshold_moving
+    elseif data.duck_amount > 0.2 then
+        threshold = CONFIG.roll_threshold_ducking
+    else
+        threshold = CONFIG.roll_threshold_standing
+    end
+    
+    local lean = data.lean_amount
+    local abs_lean = math_abs(lean)
+    
+    if abs_lean > threshold then
+        state.roll_detected = true
+        state.roll_side = lean > 0 and SIDE.RIGHT or SIDE.LEFT
+        
+        -- Confidence based on how far above threshold
+        local excess = (abs_lean - threshold) / (1 - threshold)
+        state.roll_confidence = utils.clamp(0.75 + excess * 0.2, 0.75, 0.95)
+        
+        -- Bruteforce on roll misses
+        if state.roll_misses > 0 then
+            if state.roll_misses >= CONFIG.roll_max_misses_before_skip then
+                -- Too many misses, skip roll
+                state.roll_detected = false
+                return false, SIDE.CENTER, 0
+            end
+            
+            if state.roll_misses % 2 == 1 then
+                state.roll_side = utils.flip_side(state.roll_side)
+                state.roll_confidence = state.roll_confidence * 0.85
+            end
+        end
+        
+        return true, state.roll_side, state.roll_confidence
+    end
+    
+    state.roll_detected = false
+    state.roll_confidence = 0
+    return false, SIDE.CENTER, 0
+end
+
+-- ============================================================================
+-- FLICK DETECTOR (Multi-pattern)
+-- ============================================================================
+
+local FlickDetector = {}
+
+function FlickDetector.detect(state)
+    local history = state.yaw_history
+    if history:size() < 6 then
+        state.flick_detected = false
+        return false, 0, 0
+    end
+    
+    local y0 = history:get(1) or 0
+    local y1 = history:get(2) or 0
+    local y2 = history:get(3) or 0
+    local y3 = history:get(4) or 0
+    local y4 = history:get(5) or 0
+    local y5 = history:get(6) or 0
+    
+    local d1 = utils.angle_diff(y0, y1)
+    local d2 = utils.angle_diff(y1, y2)
+    local d3 = utils.angle_diff(y2, y3)
+    local d4 = utils.angle_diff(y3, y4)
+    local d5 = utils.angle_diff(y4, y5)
+    
+    local threshold = 25
+    local confidence = 0.80
+    
+    -- Pattern 1: Stable -> Jump -> Return
+    if math_abs(d4) < 10 and math_abs(d3) < 10 and math_abs(d2) > threshold then
+        local return_delta = math_abs(utils.angle_diff(y0, y2))
+        if return_delta < 25 then
+            state.flick_detected = true
+            state.flick_original_yaw = y3
+            return true, y3, confidence
+        end
+    end
+    
+    -- Pattern 2: Double jump
+    if math_abs(d1) > threshold and math_abs(d2) > threshold then
+        if utils.sign(d1) ~= utils.sign(d2) then
+            state.flick_detected = true
+            state.flick_original_yaw = y2
+            return true, y2, confidence * 0.95
+        end
+    end
+    
+    -- Pattern 3: Triple direction change (rapid fake)
+    if math_abs(d1) > 18 and math_abs(d2) > 18 and math_abs(d3) > 18 then
+        if utils.sign(d1) ~= utils.sign(d2) and utils.sign(d2) ~= utils.sign(d3) then
+            state.flick_detected = true
+            state.flick_original_yaw = y3
+            return true, y3, confidence * 0.88
+        end
+    end
+    
+    -- Pattern 4: Spike in otherwise stable yaw
+    local avg_change = (math_abs(d3) + math_abs(d4) + math_abs(d5)) / 3
+    if avg_change < 8 and math_abs(d1) > 40 then
+        state.flick_detected = true
+        state.flick_original_yaw = y1
+        return true, y1, confidence * 0.82
+    end
+    
+    state.flick_detected = false
+    return false, 0, 0
+end
+
+-- ============================================================================
+-- PEEK DETECTOR (Enhanced)
+-- ============================================================================
+
+local PeekDetector = {}
+
+function PeekDetector.analyze(state, data, local_data)
+    if not data or not data.valid or not local_data then 
+        state.is_peeking = false
+        return false, SIDE.CENTER, 0 
+    end
+    
+    local current_time = globals.realtime()
+    
+    -- Calculate acceleration
+    local prev_vel = state.velocity_history:get(2) or 0
+    local accel = (data.speed_2d - prev_vel) / math_max(0.001, globals.frametime())
+    state.last_acceleration = accel
+    
+    -- Calculate angle to enemy
+    local angle_to_local = utils.vec2_angle(
+        local_data.origin.x - data.origin.x,
+        local_data.origin.y - data.origin.y
+    )
+    state.peek_angle_to_enemy = utils.angle_diff(data.velocity_angle, angle_to_local)
+    
+    -- Peek start detection
+    local is_approaching = math_abs(state.peek_angle_to_enemy) < CONFIG.peek_angle_threshold
+    
+    if accel > CONFIG.peek_accel_threshold and 
+       data.speed_2d > CONFIG.peek_velocity_threshold and
+       is_approaching then
+        
+        if not state.is_peeking then
+            state.peek_start_time = current_time
+            state.peek_start_origin = {
+                x = data.origin.x, 
+                y = data.origin.y, 
+                z = data.origin.z
+            }
+        end
+        state.is_peeking = true
+    end
+    
+    -- Peek end detection
+    if state.is_peeking then
+        local duration = current_time - state.peek_start_time
+        local is_retreating = math_abs(state.peek_angle_to_enemy) > 110
+        
+        if duration > CONFIG.peek_duration or data.speed_2d < 40 or is_retreating then
+            state.is_peeking = false
+        end
+    end
+    
+    -- Calculate peek direction
+    local peek_side = SIDE.CENTER
+    local peek_conf = 0
+    
+    if state.is_peeking then
+        local strafe = utils.angle_diff(data.velocity_angle, data.eye_yaw)
+        
+        if strafe > 30 then
+            peek_side = SIDE.RIGHT
+            peek_conf = 0.75
+        elseif strafe < -30 then
+            peek_side = SIDE.LEFT
+            peek_conf = 0.75
+        else
+            -- Use desync as fallback
+            local body = data.desync_amount
+            if body > 15 then
+                peek_side = SIDE.RIGHT
+                peek_conf = 0.62
+            elseif body < -15 then
+                peek_side = SIDE.LEFT
+                peek_conf = 0.62
+            end
+        end
+        
+        -- Boost confidence if player is aggressive peeking
+        if data.speed_2d > 200 and math_abs(state.peek_angle_to_enemy) < 45 then
+            peek_conf = math_min(peek_conf + 0.1, 0.88)
+        end
+    end
+    
+    state.peek_direction = peek_side
+    state.peek_confidence = peek_conf
+    
+    return state.is_peeking, peek_side, peek_conf
+end
+
+-- ============================================================================
+-- FREESTANDING DETECTOR (Multi-angle)
+-- ============================================================================
+
+local FreestandingDetector = {}
+local freestand_cache = {}
+local freestand_cache_tick = -1
+
+function FreestandingDetector.detect(target_idx, local_idx)
+    local current_tick = globals.tickcount()
+    
+    if freestand_cache_tick ~= current_tick then
+        freestand_cache = {}
+        freestand_cache_tick = current_tick
+    end
+    
+    if freestand_cache[target_idx] then
+        return freestand_cache[target_idx].side, freestand_cache[target_idx].confidence
+    end
+    
+    local lx, ly, lz = get_prop(local_idx, "m_vecOrigin")
+    local px, py, pz = get_prop(target_idx, "m_vecOrigin")
+    
+    if not lx or not px then
+        freestand_cache[target_idx] = {side = SIDE.CENTER, confidence = 0}
+        return SIDE.CENTER, 0
+    end
+    
+    local duck = get_prop(target_idx, "m_flDuckAmount") or 0
+    local angle = math_deg(math_atan2(ly - py, lx - px))
+    
+    local left_blocked = 0
+    local right_blocked = 0
+    local total_traces = 0
+    
+    -- Multi-angle traces
+    for _, trace_angle in ipairs(CONFIG.trace_angles) do
+        for _, height_mult in ipairs(CONFIG.trace_heights) do
+            local head_z = pz + utils.lerp(CONFIG.trace_height_offset, 46, duck) * height_mult
+            local dist = CONFIG.trace_distance
+            
+            local left_x = px + math_cos(math_rad(angle + trace_angle)) * dist
+            local left_y = py + math_sin(math_rad(angle + trace_angle)) * dist
+            local right_x = px + math_cos(math_rad(angle - trace_angle)) * dist
+            local right_y = py + math_sin(math_rad(angle - trace_angle)) * dist
+            
+            local tr_left = client.trace_line(target_idx, px, py, head_z, left_x, left_y, head_z)
+            local tr_right = client.trace_line(target_idx, px, py, head_z, right_x, right_y, head_z)
+            
+            if tr_left < 0.85 then left_blocked = left_blocked + 1 end
+            if tr_right < 0.85 then right_blocked = right_blocked + 1 end
+            total_traces = total_traces + 1
+        end
+    end
+    
+    local result = {side = SIDE.CENTER, confidence = 0}
+    
+    local left_ratio = left_blocked / total_traces
+    local right_ratio = right_blocked / total_traces
+    
+    if left_ratio > 0.6 and right_ratio < 0.3 then
+        result = {side = SIDE.RIGHT, confidence = 0.70 + (left_ratio - right_ratio) * 0.2}
+    elseif right_ratio > 0.6 and left_ratio < 0.3 then
+        result = {side = SIDE.LEFT, confidence = 0.70 + (right_ratio - left_ratio) * 0.2}
+    elseif left_ratio > 0.5 and right_ratio > 0.5 then
+        result = {side = SIDE.CENTER, confidence = 0.55}
+    end
+    
+    result.confidence = utils.clamp(result.confidence, 0, 0.88)
+    freestand_cache[target_idx] = result
+    
+    return result.side, result.confidence
+end
+
+-- ============================================================================
+-- ANTI-BRUTEFORCE DETECTOR
+-- ============================================================================
+
+local AntiBruteDetector = {}
+
+function AntiBruteDetector.detect(state)
+    if state.shot_history:size() < 8 then
+        state.anti_brute_detected = false
+        return false, 0
+    end
+    
+    local recent_misses = {}
+    local recent_sides = {}
+    
+    for i = 1, math_min(12, state.shot_history:size()) do
+        local shot = state.shot_history:get(i)
+        if shot and not shot.hit then
+            table_insert(recent_misses, shot)
+            table_insert(recent_sides, shot.predicted_side)
+        end
+    end
+    
+    if #recent_misses < 6 then
+        state.anti_brute_detected = false
+        return false, 0
+    end
+    
+    -- Check for side change frequency
+    local side_changes = 0
+    for i = 2, #recent_sides do
+        if recent_sides[i] ~= recent_sides[i-1] then
+            side_changes = side_changes + 1
+        end
+    end
+    
+    local change_rate = side_changes / (#recent_sides - 1)
+    
+    -- Also check if we're cycling through all sides
+    local unique_sides = {}
+    for _, side in ipairs(recent_sides) do
+        unique_sides[side] = true
+    end
+    local side_variety = 0
+    for _ in pairs(unique_sides) do side_variety = side_variety + 1 end
+    
+    local is_anti_brute = change_rate > 0.70 and 
+                          state.misses_in_row >= 6 and 
+                          side_variety >= 2
+    
+    if is_anti_brute then
+        state.anti_brute_detected = true
+        state.anti_brute_confidence = change_rate
+        return true, change_rate
+    end
+    
+    state.anti_brute_detected = false
+    return false, 0
+end
+
+-- ============================================================================
+-- ANIMATION ANALYZER
+-- ============================================================================
+
+local AnimationAnalyzer = {}
+
+function AnimationAnalyzer.analyze(state, data)
+    if not data or not data.valid then return SIDE.CENTER, 0 end
+    
+    local side = SIDE.CENTER
+    local confidence = 0.5
+    
+    -- Use pose parameters for animation analysis
+    local body_yaw = data.body_yaw_pose
+    local move_yaw = data.move_yaw_pose
+    
+    -- Body yaw deviation from center
+    local body_dev = (body_yaw - 0.5) * 2
+    
+    -- Movement direction indicator
+    local move_dev = (move_yaw - 0.5) * 2
+    
+    -- Combine signals
+    if math_abs(body_dev) > 0.3 then
+        side = body_dev > 0 and SIDE.RIGHT or SIDE.LEFT
+        confidence = 0.55 + math_abs(body_dev) * 0.2
+    end
+    
+    -- If moving, use movement direction
+    if data.is_moving and math_abs(move_dev) > 0.2 then
+        local move_side = move_dev > 0 and SIDE.RIGHT or SIDE.LEFT
+        
+        -- Combine with body if they agree
+        if move_side == side then
+            confidence = confidence + 0.1
+        else
+            confidence = confidence * 0.8
+        end
+    end
+    
+    return side, utils.clamp(confidence, 0.4, 0.75)
+end
+
+-- ============================================================================
+-- MODE CANDIDATE SYSTEM (For Smart Selection)
+-- ============================================================================
+
+local ModeCandidate = {}
+ModeCandidate.__index = ModeCandidate
+
+function ModeCandidate.new(mode, side, confidence, score)
+    return setmetatable({
+        mode = mode,
+        side = side,
+        confidence = confidence,
+        score = score,
+        priority = 0
+    }, ModeCandidate)
+end
+
+local ModeCandidateCollector = {}
+
+function ModeCandidateCollector.new()
+    return {
+        candidates = {},
+        count = 0
+    }
+end
+
+function ModeCandidateCollector.add(collector, mode, side, confidence, score, priority)
+    priority = priority or 0
+    
+    if confidence < CONFIG.mode_min_confidence then
+        return
+    end
+    
+    table_insert(collector.candidates, {
+        mode = mode,
+        side = side,
+        confidence = confidence,
+        score = score,
+        priority = priority
+    })
+    collector.count = collector.count + 1
+end
+
+function ModeCandidateCollector.get_best(collector, state)
+    if collector.count == 0 then
+        return SIDE.CENTER, 0.5, MODE.IDLE
+    end
+    
+    -- Score each candidate
+    for _, cand in ipairs(collector.candidates) do
+        local base_score = cand.score
+        
+        -- Apply historical success rate
+        local success_rate = state.mode_success_rate[cand.mode] or 0.5
+        base_score = base_score * (0.5 + success_rate * 0.5)
+        
+        -- Apply priority boost
+        base_score = base_score + cand.priority * 0.1
+        
+        -- Apply confidence
+        base_score = base_score * cand.confidence
+        
+        -- Penalty for modes that have been failing
+        if state.misses_in_row > 0 and state.current_mode == cand.mode then
+            base_score = base_score * CONFIG.brute_score_penalty
+        end
+        
+        cand.final_score = base_score
+    end
+    
+    -- Sort by final score
+    table_sort(collector.candidates, function(a, b) 
+        return a.final_score > b.final_score 
+    end)
+    
+    local best = collector.candidates[1]
+    
+    -- Check if we should switch from current mode
+    if state.current_mode ~= MODE.IDLE and state.current_mode ~= best.mode then
+        local current_score = 0
+        for _, cand in ipairs(collector.candidates) do
+            if cand.mode == state.current_mode then
+                current_score = cand.final_score
+                break
+            end
+        end
+        
+        -- Only switch if significantly better
+        if best.final_score < current_score + CONFIG.mode_switch_threshold then
+            -- Keep current mode
+            for _, cand in ipairs(collector.candidates) do
+                if cand.mode == state.current_mode then
+                    return cand.side, cand.confidence, cand.mode
+                end
+            end
+        end
+    end
+    
+    return best.side, best.confidence, best.mode
+end
+
+-- ============================================================================
+-- EXPORT FOR PART 2
+-- ============================================================================
+
+_G.MISSWARE = {
+    VERSION = VERSION,
+    SCRIPT_NAME = SCRIPT_NAME,
+    CONFIG = CONFIG,
+    
+    SIDE = SIDE,
+    MODE = MODE,
+    MODE_NAMES = MODE_NAMES,
+    MODE_SHORT = MODE_SHORT,
+    MODE_BASE_SCORES = MODE_BASE_SCORES,
+    HITGROUP = HITGROUP,
+    PATTERN = PATTERN,
+    PRED_ERROR_REASON = PRED_ERROR_REASON,
+    
+    KILL_MESSAGES = KILL_MESSAGES,
+    CLANTAG_FRAMES = CLANTAG_FRAMES,
+    
+    utils = utils,
+    ObjectPool = ObjectPool,
+    CircularBuffer = CircularBuffer,
+    EntityCache = EntityCache,
+    BacktrackSystem = BacktrackSystem,
+    
+    get_prop = get_prop,
+    is_valid_player = is_valid_player,
+    is_enemy = is_enemy,
+    get_local_player = get_local_player,
+    extract_player_data = extract_player_data,
+    
+    ShotRecord = ShotRecord,
+    PlayerState = PlayerState,
+    
+    PatternDetector = PatternDetector,
+    LBYPredictor = LBYPredictor,
+    RollDetector = RollDetector,
+    FlickDetector = FlickDetector,
+    PeekDetector = PeekDetector,
+    FreestandingDetector = FreestandingDetector,
+    AntiBruteDetector = AntiBruteDetector,
+    AnimationAnalyzer = AnimationAnalyzer,
+    
+    ModeCandidate = ModeCandidate,
+    ModeCandidateCollector = ModeCandidateCollector
+}
+
+-- ============================================================================
+-- PART 1 LOADED
+-- ============================================================================
+
+client.color_log(0, 200, 255, "╔════════════════════════════════════════════╗")
+client.color_log(0, 200, 255, "║      MISSWARE RESOLVER v" .. VERSION .. "          ║")
+client.color_log(0, 200, 255, "║            PART 1/2 LOADED                 ║")
+client.color_log(0, 200, 255, "╚════════════════════════════════════════════╝")
+client.color_log(100, 255, 100, "[✓] Object Pool System")
+client.color_log(100, 255, 100, "[✓] Enhanced Circular Buffer (FFT/Autocorr)")
+client.color_log(100, 255, 100, "[✓] Full Backtrack System")
+client.color_log(100, 255, 100, "[✓] Advanced Pattern Detection")
+client.color_log(100, 255, 100, "[✓] All Detectors (Roll/Flick/Peek/FS)")
+client.color_log(100, 255, 100, "[✓] Animation Analyzer")
+client.color_log(100, 255, 100, "[✓] Mode Candidate System")
+client.color_log(100, 255, 100, "[✓] Prediction Error Analysis")
+client.color_log(255, 255, 100, "[...] Loading Part 2...")
+
+-- ============================================================================
+-- MISSWARE RESOLVER v2.0 - REWRITTEN EDITION
+-- ============================================================================
+-- CZĘŚĆ 2/2: Smart Resolver Engine, Specialized Resolvers, Visuals, Events
+-- ============================================================================
+
+-- Import z części 1
+local M = _G.MISSWARE
+if not M then
+    client.color_log(255, 50, 50, "[MISSWARE] ERROR: Part 1 not loaded!")
+    return
+end
+
+-- Rozpakowanie
+local VERSION = M.VERSION
+local SCRIPT_NAME = M.SCRIPT_NAME
+local CONFIG = M.CONFIG
+local SIDE = M.SIDE
+local MODE = M.MODE
+local MODE_NAMES = M.MODE_NAMES
+local MODE_SHORT = M.MODE_SHORT
+local MODE_BASE_SCORES = M.MODE_BASE_SCORES
+local HITGROUP = M.HITGROUP
+local PATTERN = M.PATTERN
+local PRED_ERROR_REASON = M.PRED_ERROR_REASON
+local KILL_MESSAGES = M.KILL_MESSAGES
+local CLANTAG_FRAMES = M.CLANTAG_FRAMES
+local utils = M.utils
+local ObjectPool = M.ObjectPool
+local CircularBuffer = M.CircularBuffer
+local BacktrackSystem = M.BacktrackSystem
+local get_prop = M.get_prop
+local is_valid_player = M.is_valid_player
+local get_local_player = M.get_local_player
+local extract_player_data = M.extract_player_data
+local ShotRecord = M.ShotRecord
+local PlayerState = M.PlayerState
+local PatternDetector = M.PatternDetector
+local LBYPredictor = M.LBYPredictor
+local RollDetector = M.RollDetector
+local FlickDetector = M.FlickDetector
+local PeekDetector = M.PeekDetector
+local FreestandingDetector = M.FreestandingDetector
+local AntiBruteDetector = M.AntiBruteDetector
+local AnimationAnalyzer = M.AnimationAnalyzer
+local ModeCandidateCollector = M.ModeCandidateCollector
+
+-- Local cache
+local math_floor = math.floor
+local math_abs = math.abs
+local math_min = math.min
+local math_max = math.max
+local math_sin = math.sin
+local math_cos = math.cos
+local math_random = math.random
+local string_format = string.format
+local table_insert = table.insert
+local table_remove = table.remove
+local table_sort = table.sort
+local pairs = pairs
+local ipairs = ipairs
+
+-- ============================================================================
+-- GLOBAL STATE
+-- ============================================================================
+
+local G = {
+    enabled = true,
+    player_states = {},
+    local_player = nil,
+    
+    -- Stats
+    total_shots = 0,
+    total_hits = 0,
+    total_kills = 0,
+    session_start = globals.realtime(),
+    
+    -- UI refs
+    ui = {},
+    
+    -- Clantag
+    clantag_index = 1,
+    clantag_last_time = 0,
+    clantag_enabled = true,
+    
+    -- Kill say
+    kill_say_queue = {},
+    kill_say_processing = false,
+    
+    -- Debug
+    last_resolve_info = {},
+    frame_count = 0
+}
+
+function G.get_state(idx)
+    if not idx or idx == 0 then return nil end
+    
+    if not G.player_states[idx] then
+        G.player_states[idx] = PlayerState.new(idx)
+    end
+    
+    return G.player_states[idx]
+end
+
+function G.cleanup()
+    for idx, _ in pairs(G.player_states) do
+        if not is_valid_player(idx) then
+            G.player_states[idx] = nil
+            BacktrackSystem.clear(idx)
+        end
+    end
+end
+
+-- ============================================================================
+-- SPECIALIZED RESOLVERS
+-- ============================================================================
+
+-- Velocity Resolver
+local VelocityResolver = {}
+
+function VelocityResolver.resolve(state, data, local_data)
+    if not data.is_moving then
+        return SIDE.CENTER, 0.4
+    end
+    
+    local vel_to_eye = utils.angle_diff(data.velocity_angle, data.eye_yaw)
+    local side = SIDE.CENTER
+    local conf = 0.5
+    
+    -- Strafe analysis
+    if data.is_sprinting then
+        if vel_to_eye > 40 then
+            side = SIDE.RIGHT
+            conf = 0.78
+        elseif vel_to_eye < -40 then
+            side = SIDE.LEFT
+            conf = 0.78
+        end
+    elseif data.is_running then
+        if vel_to_eye > 32 then
+            side = SIDE.RIGHT
+            conf = 0.72
+        elseif vel_to_eye < -32 then
+            side = SIDE.LEFT
+            conf = 0.72
+        end
+    elseif data.is_slow_walking then
+        if vel_to_eye > 55 then
+            side = SIDE.RIGHT
+            conf = 0.58
+        elseif vel_to_eye < -55 then
+            side = SIDE.LEFT
+            conf = 0.58
+        end
+    else
+        if vel_to_eye > 28 then
+            side = SIDE.RIGHT
+            conf = 0.65
+        elseif vel_to_eye < -28 then
+            side = SIDE.LEFT
+            conf = 0.65
+        end
+    end
+    
+    -- Boost if desync agrees
+    if side ~= SIDE.CENTER then
+        local desync_side = data.desync_amount > 12 and SIDE.RIGHT or (data.desync_amount < -12 and SIDE.LEFT or SIDE.CENTER)
+        if desync_side == side then
+            conf = conf + 0.08
+        end
+    end
+    
+    -- Store last move
+    if data.is_moving then
+        state.last_move_side = side
+        state.last_move_time = globals.realtime()
+        state.last_move_yaw = data.eye_yaw
+    end
+    
+    return side, utils.clamp(conf, 0.4, 0.88)
+end
+
+-- Air Resolver
+local AirResolver = {}
+
+function AirResolver.resolve(state, data)
+    if data.on_ground then
+        return SIDE.CENTER, 0
+    end
+    
+    local side = SIDE.CENTER
+    local conf = 0.55
+    
+    -- Lean detection (roll in air)
+    local lean = data.lean_amount
+    if math_abs(lean) > 0.40 then
+        side = lean > 0 and SIDE.RIGHT or SIDE.LEFT
+        conf = 0.85
+    elseif math_abs(lean) > 0.25 then
+        side = lean > 0 and SIDE.RIGHT or SIDE.LEFT
+        conf = 0.72
+    elseif data.speed_2d > 80 then
+        -- Use velocity
+        local vel_to_eye = utils.angle_diff(data.velocity_angle, data.eye_yaw)
+        if vel_to_eye > 40 then
+            side = SIDE.LEFT
+            conf = 0.68
+        elseif vel_to_eye < -40 then
+            side = SIDE.RIGHT
+            conf = 0.68
+        end
+    else
+        -- Use desync
+        local body = data.desync_amount
+        if math_abs(body) > 20 then
+            side = body > 0 and SIDE.RIGHT or SIDE.LEFT
+            conf = 0.58
+        end
+    end
+    
+    return side, conf
+end
+
+-- Defensive Resolver
+local DefensiveResolver = {}
+
+function DefensiveResolver.resolve(state, data)
+    state.defensive_detected = true
+    
+    local side = SIDE.CENTER
+    local conf = 0.48
+    
+    -- Check pitch (looking down/up = defensive)
+    if math_abs(data.eye_pitch) > 85 then
+        state.defensive_type = "pitch"
+        
+        -- Try last successful side
+        if state.last_hit_side ~= SIDE.CENTER and state:has_recent_hit() then
+            side = state.last_hit_side
+            conf = 0.62
+        else
+            -- Use desync
+            local desync = data.desync_amount
+            if desync > 18 then
+                side = SIDE.RIGHT
+                conf = 0.55
+            elseif desync < -18 then
+                side = SIDE.LEFT
+                conf = 0.55
+            end
+        end
+    end
+    
+    -- High choke = exploiting
+    if data.is_exploiting then
+        state.defensive_type = "exploit"
+        conf = conf * 0.85
+    end
+    
+    -- Breaking lag comp
+    if data.is_breaking_lc then
+        state.defensive_type = "lagcomp"
+        conf = conf * 0.90
+    end
+    
+    return side, conf
+end
+
+-- Jitter Resolver
+local JitterResolver = {}
+
+function JitterResolver.resolve(state, data, local_idx)
+    local side = SIDE.CENTER
+    local conf = 0.45
+    
+    -- Freestanding is most reliable for jitter
+    local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+    if fs_conf > 0.60 then
+        side = fs_side
+        conf = fs_conf * 0.92
+    else
+        -- Tick-based alternation
+        local tick = globals.tickcount()
+        
+        if state.pattern_frequency > 0.4 then
+            -- High frequency jitter - use tick parity
+            side = (tick % 2 == 0) and SIDE.LEFT or SIDE.RIGHT
+            conf = 0.42
+        else
+            -- Low frequency - try to sync
+            local phase = math_floor((tick * state.pattern_frequency) % 2)
+            side = phase == 0 and SIDE.LEFT or SIDE.RIGHT
+            conf = 0.48
+        end
+    end
+    
+    -- Override with last hit if recent
+    if state.hits_in_row > 0 and state.last_hit_side ~= SIDE.CENTER then
+        side = state.last_hit_side
+        conf = math_max(conf, 0.65)
+    end
+    
+    return side, conf
+end
+
+-- Static Resolver
+local StaticResolver = {}
+
+function StaticResolver.resolve(state, data)
+    local avg_desync = state.desync_history:average()
+    
+    local side = SIDE.CENTER
+    local conf = 0.75
+    
+    if avg_desync > 15 then
+        side = SIDE.RIGHT
+        conf = 0.80
+    elseif avg_desync < -15 then
+        side = SIDE.LEFT
+        conf = 0.80
+    elseif math_abs(avg_desync) > 8 then
+        side = avg_desync > 0 and SIDE.RIGHT or SIDE.LEFT
+        conf = 0.68
+    end
+    
+    -- Bruteforce on misses
+    if state.misses_in_row > 0 then
+        local stage = state.misses_in_row % 5
+        if stage == 1 then
+            side = utils.flip_side(side)
+            conf = 0.55
+        elseif stage == 2 then
+            side = SIDE.CENTER
+            conf = 0.50
+        elseif stage == 3 then
+            side = utils.flip_side(side)
+            conf = 0.48
+        elseif stage == 4 then
+            -- Random
+            side = utils.random_side()
+            conf = 0.40
+        end
+    end
+    
+    return side, conf
+end
+
+-- Switch Resolver
+local SwitchResolver = {}
+
+function SwitchResolver.resolve(state, data, local_idx)
+    -- For switch AA, predict opposite of current
+    local last_desync = state.desync_history:get(1) or 0
+    local prev_desync = state.desync_history:get(2) or 0
+    
+    local side = SIDE.CENTER
+    local conf = 0.55
+    
+    -- Detect switch direction
+    local switching_right = prev_desync < 0 and last_desync > 0
+    local switching_left = prev_desync > 0 and last_desync < 0
+    
+    if switching_right then
+        side = SIDE.LEFT  -- Predict it will switch back
+        conf = 0.62
+    elseif switching_left then
+        side = SIDE.RIGHT
+        conf = 0.62
+    else
+        -- Use current side
+        if last_desync > 12 then
+            side = SIDE.RIGHT
+        elseif last_desync < -12 then
+            side = SIDE.LEFT
+        end
+        conf = 0.55
+    end
+    
+    -- Freestanding backup
+    local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+    if fs_conf > conf + 0.08 then
+        side = fs_side
+        conf = fs_conf
+    end
+    
+    return side, conf
+end
+
+-- Spin Resolver
+local SpinResolver = {}
+
+function SpinResolver.resolve(state, data, local_idx)
+    state.spin_detected = true
+    
+    -- For spin, just use freestanding or center
+    local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+    
+    if fs_conf > 0.55 then
+        return fs_side, fs_conf * 0.85
+    end
+    
+    -- Default to center for spin
+    return SIDE.CENTER, 0.42
+end
+
+-- Bruteforce Resolver (14 stages)
+local BruteforceResolver = {}
+
+function BruteforceResolver.resolve(state, data, local_idx)
+    local stage = state.brute_stage
+    local side = SIDE.CENTER
+    local conf = 0.35
+    
+    if stage == 0 then
+        -- Flip last side
+        side = utils.flip_side(state.current_side)
+        conf = 0.42
+        
+    elseif stage == 1 then
+        side = SIDE.LEFT
+        conf = 0.38
+        
+    elseif stage == 2 then
+        side = SIDE.RIGHT
+        conf = 0.38
+        
+    elseif stage == 3 then
+        side = SIDE.CENTER
+        conf = 0.35
+        
+    elseif stage == 4 then
+        -- Freestanding
+        local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+        if fs_conf > 0.45 then
+            side = fs_side
+            conf = fs_conf * 0.75
+        else
+            side = utils.random_side()
+            conf = 0.28
+        end
+        
+    elseif stage == 5 then
+        -- Opposite freestanding
+        local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+        if fs_conf > 0.45 then
+            side = utils.flip_side(fs_side)
+            conf = 0.38
+        else
+            side = utils.random_side()
+            conf = 0.25
+        end
+        
+    elseif stage == 6 then
+        -- Tick jitter
+        side = (globals.tickcount() % 2 == 0) and SIDE.LEFT or SIDE.RIGHT
+        conf = 0.32
+        
+    elseif stage == 7 then
+        -- Last move side
+        if state.last_move_side ~= SIDE.CENTER then
+            local time_since = globals.realtime() - state.last_move_time
+            if time_since < 3.0 then
+                side = state.last_move_side
+                conf = utils.lerp(0.52, 0.28, time_since / 3.0)
+            else
+                side = utils.flip_side(state.last_move_side)
+                conf = 0.30
+            end
+        else
+            side = SIDE.LEFT
+            conf = 0.25
+        end
+        
+    elseif stage == 8 then
+        -- Flip of last move
+        if state.last_move_side ~= SIDE.CENTER then
+            side = utils.flip_side(state.last_move_side)
+            conf = 0.35
+        else
+            side = SIDE.RIGHT
+            conf = 0.25
+        end
+        
+    elseif stage == 9 then
+        -- Best historical side
+        local best_side, best_count = state:get_best_side()
+        if best_count >= 2 then
+            side = best_side
+            conf = 0.48
+        else
+            side = utils.random_side()
+            conf = 0.22
+        end
+        
+    elseif stage == 10 then
+        -- Opposite of best historical
+        local best_side, best_count = state:get_best_side()
+        if best_count >= 2 then
+            side = utils.flip_side(best_side)
+            conf = 0.35
+        else
+            side = utils.random_side()
+            conf = 0.22
+        end
+        
+    elseif stage == 11 then
+        -- Three-way cycle
+        local cycle_idx = globals.tickcount() % 3
+        if cycle_idx == 0 then side = SIDE.LEFT
+        elseif cycle_idx == 1 then side = SIDE.RIGHT
+        else side = SIDE.CENTER end
+        conf = 0.28
+        
+    elseif stage == 12 then
+        -- Desync-based flip
+        local desync = data.desync_amount
+        if desync > 18 then
+            side = SIDE.LEFT  -- Flip
+        elseif desync < -18 then
+            side = SIDE.RIGHT  -- Flip
+        else
+            side = utils.random_side()
+        end
+        conf = 0.32
+        
+    elseif stage == 13 then
+        -- Weighted random based on history
+        local left_hits = state.side_hit_counts[SIDE.LEFT] or 0
+        local right_hits = state.side_hit_counts[SIDE.RIGHT] or 0
+        side = utils.weighted_random_side(left_hits + 1, right_hits + 1)
+        conf = 0.30
+        
+    else
+        side = utils.random_side()
+        conf = 0.20
+    end
+    
+    return side, conf
+end
+
+-- Peek Resolver
+local PeekResolver = {}
+
+function PeekResolver.resolve(state, data, local_data)
+    if not state.is_peeking then
+        return SIDE.CENTER, 0, false
+    end
+    
+    local side = state.peek_direction
+    local conf = state.peek_confidence
+    
+    -- Refine based on angle to enemy
+    if side == SIDE.CENTER then
+        local vel_to_eye = utils.angle_diff(data.velocity_angle, data.eye_yaw)
+        if vel_to_eye > 32 then
+            side = SIDE.RIGHT
+            conf = 0.70
+        elseif vel_to_eye < -32 then
+            side = SIDE.LEFT
+            conf = 0.70
+        else
+            local body = data.desync_amount
+            if body > 18 then
+                side = SIDE.RIGHT
+                conf = 0.60
+            elseif body < -18 then
+                side = SIDE.LEFT
+                conf = 0.60
+            end
+        end
+    end
+    
+    -- Bruteforce on miss
+    if state.misses_in_row > 0 and side ~= SIDE.CENTER then
+        if state.misses_in_row % 2 == 1 then
+            side = utils.flip_side(side)
+            conf = conf * 0.82
+        elseif state.misses_in_row >= 3 then
+            side = SIDE.CENTER
+            conf = 0.45
+        end
+    end
+    
+    return side, conf, true
+end
+
+-- Prediction Error Recovery Resolver
+local PredErrorResolver = {}
+
+function PredErrorResolver.resolve(state, data, local_idx)
+    local side = SIDE.CENTER
+    local conf = 0.38
+    
+    -- Analyze dominant error type
+    local error_type = state.dominant_error_type
+    
+    if error_type == PRED_ERROR_REASON.CHOKE then
+        -- High choke - use center or freestanding
+        local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+        if fs_conf > 0.55 then
+            side = fs_side
+            conf = fs_conf * 0.80
+        else
+            side = SIDE.CENTER
+            conf = 0.42
+        end
+        
+    elseif error_type == PRED_ERROR_REASON.VELOCITY then
+        -- Velocity prediction failed - try last move opposite
+        if state.last_move_side ~= SIDE.CENTER then
+            side = utils.flip_side(state.last_move_side)
+            conf = 0.45
+        else
+            side = utils.random_side()
+            conf = 0.35
+        end
+        
+    elseif error_type == PRED_ERROR_REASON.ROLL_MISS then
+        -- Roll detection failed - skip roll, use other methods
+        local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+        side = fs_conf > 0.5 and fs_side or utils.flip_side(state.current_side)
+        conf = 0.48
+        
+    elseif error_type == PRED_ERROR_REASON.LBY_BREAK then
+        -- LBY was broken - they're faking
+        side = utils.flip_side(state.current_side)
+        conf = 0.52
+        
+    elseif error_type == PRED_ERROR_REASON.DESYNC then
+        -- Heavy desync - try alternatives
+        local alt_stage = state.pred_error_streak % 4
+        if alt_stage == 0 then
+            side = utils.flip_side(state.current_side)
+        elseif alt_stage == 1 then
+            side = SIDE.CENTER
+        elseif alt_stage == 2 then
+            local fs_side, _ = FreestandingDetector.detect(state.idx, local_idx)
+            side = fs_side
+        else
+            side = utils.random_side()
+        end
+        conf = 0.40
+        
+    else
+        -- Generic recovery - aggressive alternating
+        local alt_stage = (state.brute_stage + state.pred_error_streak * 2) % 7
+        
+        if alt_stage == 0 then
+            side = utils.flip_side(state.current_side)
+        elseif alt_stage == 1 then
+            side = SIDE.LEFT
+        elseif alt_stage == 2 then
+            side = SIDE.RIGHT
+        elseif alt_stage == 3 then
+            side = SIDE.CENTER
+        elseif alt_stage == 4 then
+            local fs_side, _ = FreestandingDetector.detect(state.idx, local_idx)
+            side = fs_side
+        elseif alt_stage == 5 then
+            side = state.last_hit_side ~= SIDE.CENTER and state.last_hit_side or SIDE.LEFT
+        else
+            side = utils.random_side()
+        end
+        conf = 0.35
+    end
+    
+    -- Never return center for PE recovery if possible
+    if side == SIDE.CENTER and state.pred_error_streak >= 2 then
+        side = utils.random_side()
+    end
+    
+    return side, conf
+end
+
+-- Backtrack Resolver
+local BacktrackResolver = {}
+
+function BacktrackResolver.resolve(state, local_data)
+    local best_record, best_offset = BacktrackSystem.get_best_record(state.idx, state, local_data)
+    
+    if not best_record then
+        return SIDE.CENTER, 0, 0
+    end
+    
+    state.best_backtrack_offset = best_offset
+    
+    local side = best_record.resolver_side
+    local conf = best_record.resolver_confidence * 0.95
+    
+    -- If backtrack record had high confidence, use it
+    if conf > 0.60 then
+        return side, conf, best_offset
+    end
+    
+    -- Otherwise, resolve the backtracked position
+    local desync = best_record.desync_amount
+    if desync > 15 then
+        side = SIDE.RIGHT
+        conf = 0.65
+    elseif desync < -15 then
+        side = SIDE.LEFT
+        conf = 0.65
+    end
+    
+    return side, conf, best_offset
+end
+
+-- Lastmove Resolver
+local LastmoveResolver = {}
+
+function LastmoveResolver.resolve(state, data)
+    if state.last_move_side == SIDE.CENTER then
+        return SIDE.CENTER, 0.40
+    end
+    
+    local time_since = globals.realtime() - state.last_move_time
+    
+    if time_since < 0.8 then
+        return state.last_move_side, 0.72
+    elseif time_since < 1.5 then
+        return state.last_move_side, utils.lerp(0.72, 0.50, (time_since - 0.8) / 0.7)
+    elseif time_since < 2.5 then
+        return state.last_move_side, utils.lerp(0.50, 0.35, (time_since - 1.5) / 1.0)
+    else
+        -- Old data, flip might work
+        return utils.flip_side(state.last_move_side), 0.38
+    end
+end
+
+-- ============================================================================
+-- SMART MODE SELECTION ENGINE
+-- ============================================================================
+
+local SmartModeSelector = {}
+
+function SmartModeSelector.collect_candidates(state, data, local_data, local_idx)
+    local collector = ModeCandidateCollector.new()
+    
+    -- 1. Check Roll (high priority if detected)
+    local roll_detected, roll_side, roll_conf = RollDetector.detect(state, data)
+    if roll_detected and state.roll_misses < CONFIG.roll_max_misses_before_skip then
+        ModeCandidateCollector.add(collector, MODE.ROLL, roll_side, roll_conf, 
+            MODE_BASE_SCORES[MODE.ROLL], 3)
+    end
+    
+    -- 2. Check LBY
+    LBYPredictor.update(state, data)
+    local lby_side, lby_conf, lby_valid = LBYPredictor.predict(state, data)
+    if lby_valid and lby_conf > 0.70 then
+        ModeCandidateCollector.add(collector, MODE.LBY, lby_side, lby_conf,
+            MODE_BASE_SCORES[MODE.LBY], 2)
+    end
+    
+    -- 3. Check Defensive
+    if data.is_defensive or data.is_exploiting then
+        local def_side, def_conf = DefensiveResolver.resolve(state, data)
+        ModeCandidateCollector.add(collector, MODE.DEFENSIVE, def_side, def_conf,
+            MODE_BASE_SCORES[MODE.DEFENSIVE], 2)
+    end
+    
+    -- 4. Check Peek
+    PeekDetector.analyze(state, data, local_data)
+    if state.is_peeking then
+        local peek_side, peek_conf, _ = PeekResolver.resolve(state, data, local_data)
+        ModeCandidateCollector.add(collector, MODE.PEEK, peek_side, peek_conf,
+            MODE_BASE_SCORES[MODE.PEEK], 2)
+    end
+    
+    -- 5. Check Flick
+    local flick_detected, flick_yaw, flick_conf = FlickDetector.detect(state)
+    if flick_detected then
+        local flick_side = SIDE.CENTER
+        local yaw_diff = utils.angle_diff(data.eye_yaw, flick_yaw)
+        if yaw_diff > 25 then
+            flick_side = SIDE.RIGHT
+        elseif yaw_diff < -25 then
+            flick_side = SIDE.LEFT
+        end
+        ModeCandidateCollector.add(collector, MODE.FLICK, flick_side, flick_conf,
+            MODE_BASE_SCORES[MODE.FLICK], 1)
+    end
+    
+    -- 6. Check Air
+    if data.is_in_air then
+        local air_side, air_conf = AirResolver.resolve(state, data)
+        ModeCandidateCollector.add(collector, MODE.AIR, air_side, air_conf,
+            MODE_BASE_SCORES[MODE.AIR], 1)
+    end
+    
+    -- 7. Pattern-based candidates
+    state.detected_pattern, state.pattern_confidence, state.pattern_frequency = PatternDetector.analyze(state)
+    local pattern = state.detected_pattern
+    
+    if pattern == PATTERN.JITTER or pattern == PATTERN.MICRO_JITTER then
+        local jit_side, jit_conf = JitterResolver.resolve(state, data, local_idx)
+        ModeCandidateCollector.add(collector, MODE.JITTER, jit_side, jit_conf,
+            MODE_BASE_SCORES[MODE.JITTER], 0)
+            
+    elseif pattern == PATTERN.STATIC or pattern == PATTERN.LOW_DELTA then
+        local static_side, static_conf = StaticResolver.resolve(state, data)
+        ModeCandidateCollector.add(collector, MODE.STATIC, static_side, static_conf,
+            MODE_BASE_SCORES[MODE.STATIC], 1)
+            
+    elseif pattern == PATTERN.SPIN then
+        local spin_side, spin_conf = SpinResolver.resolve(state, data, local_idx)
+        ModeCandidateCollector.add(collector, MODE.SPIN, spin_side, spin_conf,
+            MODE_BASE_SCORES[MODE.SPIN], 0)
+        state.spin_detected = true
+        
+    elseif pattern == PATTERN.SWITCH then
+        local switch_side, switch_conf = SwitchResolver.resolve(state, data, local_idx)
+        ModeCandidateCollector.add(collector, MODE.SWITCH, switch_side, switch_conf,
+            MODE_BASE_SCORES[MODE.SWITCH], 0)
+    end
+    
+    -- 8. Velocity (if moving)
+    if data.is_moving then
+        local vel_side, vel_conf = VelocityResolver.resolve(state, data, local_data)
+        ModeCandidateCollector.add(collector, MODE.VELOCITY, vel_side, vel_conf,
+            MODE_BASE_SCORES[MODE.VELOCITY], 0)
+    end
+    
+    -- 9. Freestanding (if not moving)
+    if not data.is_moving then
+        local fs_side, fs_conf = FreestandingDetector.detect(state.idx, local_idx)
+        if fs_conf > 0.50 then
+            ModeCandidateCollector.add(collector, MODE.FREESTANDING, fs_side, fs_conf,
+                MODE_BASE_SCORES[MODE.FREESTANDING], 0)
+        end
+    end
+    
+    -- 10. Lastmove (if standing)
+    if not data.is_moving and state.last_move_side ~= SIDE.CENTER then
+        local lm_side, lm_conf = LastmoveResolver.resolve(state, data)
+        ModeCandidateCollector.add(collector, MODE.LASTMOVE, lm_side, lm_conf,
+            MODE_BASE_SCORES[MODE.LASTMOVE], 0)
+    end
+    
+    -- 11. Animation analysis
+    local anim_side, anim_conf = AnimationAnalyzer.analyze(state, data)
+    if anim_conf > 0.50 then
+        ModeCandidateCollector.add(collector, MODE.ANIMATION, anim_side, anim_conf,
+            MODE_BASE_SCORES[MODE.ANIMATION], 0)
+    end
+    
+    -- 12. Backtrack
+    local bt_side, bt_conf, bt_offset = BacktrackResolver.resolve(state, local_data)
+    if bt_conf > 0.55 and bt_offset > 0 then
+        ModeCandidateCollector.add(collector, MODE.BACKTRACK, bt_side, bt_conf,
+            MODE_BASE_SCORES[MODE.BACKTRACK], 0)
+    end
+    
+    return collector
+end
+
+-- ============================================================================
+-- MAIN RESOLVER ENGINE
+-- ============================================================================
+
+local MainResolver = {}
+
+function MainResolver.resolve(target_idx, local_idx)
+    local state = G.get_state(target_idx)
+    if not state then
+        return SIDE.CENTER, 0.5, MODE.IDLE
+    end
+    
+    -- Check resolver lock
+    if state:is_locked() then
+        return state.locked_side, state.current_confidence, state.current_mode
+    end
+    
+    -- Check cache
+    if state:should_use_cache() then
+        return state:get_cached()
+    end
+    
+    -- Extract data
+    local data = extract_player_data(target_idx)
+    local local_data = extract_player_data(local_idx)
+    
+    if not data or not data.valid or not local_data then
+        return SIDE.CENTER, 0.5, MODE.IDLE
+    end
+    
+    -- Update history
+    state:update_history(data)
+    
+    local final_side = SIDE.CENTER
+    local final_conf = 0.5
+    local final_mode = MODE.IDLE
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- PRIORITY 0: PREDICTION ERROR RECOVERY (Override everything)
+    -- ═══════════════════════════════════════════════════════════════════
+    if state.pred_error_streak >= CONFIG.pred_error_streak_threshold then
+        final_side, final_conf = PredErrorResolver.resolve(state, data, local_idx)
+        final_mode = MODE.PRED_ERROR_RECOVERY
+        
+        state:cache(final_side, final_conf, final_mode)
+        return final_side, final_conf, final_mode
+    end
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- PRIORITY 1: ANTI-BRUTEFORCE DETECTION
+    -- ═══════════════════════════════════════════════════════════════════
+    local anti_brute, ab_conf = AntiBruteDetector.detect(state)
+    if anti_brute then
+        -- They're adapting to our bruteforce - try random or backtrack
+        local bt_side, bt_conf, bt_offset = BacktrackResolver.resolve(state, local_data)
+        if bt_conf > 0.50 then
+            final_side = bt_side
+            final_conf = bt_conf
+            final_mode = MODE.BACKTRACK
+        else
+            final_side = utils.random_side()
+            final_conf = 0.38
+            final_mode = MODE.ANTI_BRUTEFORCE
+        end
+        
+        state:cache(final_side, final_conf, final_mode)
+        return final_side, final_conf, final_mode
+    end
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- PRIORITY 2: BRUTEFORCE MODE (on consecutive misses)
+    -- ═══════════════════════════════════════════════════════════════════
+    if state.misses_in_row >= 2 then
+        final_side, final_conf = BruteforceResolver.resolve(state, data, local_idx)
+        final_mode = MODE.BRUTEFORCE
+        
+        state:cache(final_side, final_conf, final_mode)
+        return final_side, final_conf, final_mode
+    end
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- SMART MODE SELECTION (Score-based)
+    -- ═══════════════════════════════════════════════════════════════════
+    local collector = SmartModeSelector.collect_candidates(state, data, local_data, local_idx)
+    final_side, final_conf, final_mode = ModeCandidateCollector.get_best(collector, state)
+    
+    -- Store mode scores for debug
+    state.last_mode_scores = {}
+    for _, cand in ipairs(collector.candidates) do
+        state.last_mode_scores[cand.mode] = cand.final_score or cand.score
+    end
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- FALLBACK: If no good candidate, use hybrid approach
+    -- ═══════════════════════════════════════════════════════════════════
+    if final_conf < 0.45 then
+        -- Combine multiple signals
+        local signals = {}
+        
+        -- Desync signal
+        if math_abs(data.desync_amount) > 12 then
+            table_insert(signals, data.desync_amount > 0 and SIDE.RIGHT or SIDE.LEFT)
+        end
+        
+        -- Velocity signal
+        if data.is_moving then
+            local vel_side, _ = VelocityResolver.resolve(state, data, local_data)
+            if vel_side ~= SIDE.CENTER then
+                table_insert(signals, vel_side)
+            end
+        end
+        
+        -- Freestanding signal
+        local fs_side, fs_conf = FreestandingDetector.detect(target_idx, local_idx)
+        if fs_conf > 0.50 then
+            table_insert(signals, fs_side)
+        end
+        
+        -- Vote
+        if #signals > 0 then
+            local left_votes = 0
+            local right_votes = 0
+            for _, s in ipairs(signals) do
+                if s == SIDE.LEFT then left_votes = left_votes + 1
+                elseif s == SIDE.RIGHT then right_votes = right_votes + 1 end
+            end
+            
+            if left_votes > right_votes then
+                final_side = SIDE.LEFT
+                final_conf = 0.50 + (left_votes / #signals) * 0.15
+            elseif right_votes > left_votes then
+                final_side = SIDE.RIGHT
+                final_conf = 0.50 + (right_votes / #signals) * 0.15
+            end
+        end
+        
+        final_mode = MODE.HYBRID
+    end
+    
+    state:cache(final_side, final_conf, final_mode)
+    return final_side, final_conf, final_mode
+end
+
+-- ============================================================================
+-- RESOLVER APPLICATION
+-- ============================================================================
+
+local ResolverApplication = {}
+
+function ResolverApplication.apply(target_idx, side, confidence, mode, data, state)
+    if not state then
+        state = G.get_state(target_idx)
+    end
+    if not state then return end
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- BODY YAW
+    -- ═══════════════════════════════════════════════════════════════════
+    local yaw_value = utils.side_to_yaw(side)
+    plist.set(target_idx, "Force body yaw", true)
+    plist.set(target_idx, "Force body yaw value", yaw_value)
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- BODY AIM LOGIC
+    -- ═══════════════════════════════════════════════════════════════════
+    local should_baim = false
+    
+    if confidence < CONFIG.baim_confidence_threshold then
+        should_baim = true
+    end
+    
+    if state.misses_in_row >= CONFIG.baim_after_misses then
+        should_baim = true
+    end
+    
+    if CONFIG.baim_on_defensive and (mode == MODE.DEFENSIVE or state.defensive_detected) then
+        should_baim = true
+    end
+    
+    if state.anti_brute_detected then
+        should_baim = true
+    end
+    
+    if data and data.is_breaking_lc then
+        should_baim = true
+    end
+    
+    if CONFIG.baim_on_pred_error and state.pred_error_streak >= 1 then
+        should_baim = true
+    end
+    
+    if mode == MODE.PEEK and state.misses_in_row > 0 then
+        should_baim = true
+    end
+    
+    if CONFIG.baim_on_high_velocity and data and data.speed_2d > CONFIG.high_velocity_threshold then
+        should_baim = true
+    end
+    
+    if CONFIG.baim_on_spin and (mode == MODE.SPIN or state.spin_detected) then
+        should_baim = true
+    end
+    
+    if mode == MODE.BRUTEFORCE and state.brute_stage >= 5 then
+        should_baim = true
+    end
+    
+    if mode == MODE.JITTER then
+        should_baim = true
+    end
+    
+    plist.set(target_idx, "Override prefer body aim", should_baim and "On" or "Off")
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- SAFE POINT LOGIC
+    -- ═══════════════════════════════════════════════════════════════════
+    local should_safe = false
+    
+    if CONFIG.safe_point_on_miss and state.misses_in_row > 0 then
+        should_safe = true
+    end
+    
+    if CONFIG.safe_point_on_movement and data and data.is_moving then
+        should_safe = true
+    end
+    
+    if CONFIG.safe_point_on_air and data and data.is_in_air then
+        should_safe = true
+    end
+    
+    if data and data.is_breaking_lc then
+        should_safe = true
+    end
+    
+    if confidence < 0.55 then
+        should_safe = true
+    end
+    
+    if mode == MODE.JITTER or mode == MODE.SPIN or mode == MODE.SWITCH then
+        should_safe = true
+    end
+    
+    if CONFIG.safe_point_on_pred_error and state.pred_error_streak >= 1 then
+        should_safe = true
+    end
+    
+    if CONFIG.safe_point_on_peek and state.is_peeking then
+        should_safe = true
+    end
+    
+    if CONFIG.safe_point_on_choke and data and data.is_high_choke then
+        should_safe = true
+    end
+    
+    if state:has_recent_pred_error() then
+        should_safe = true
+    end
+    
+    if data and data.speed_2d > 160 then
+        should_safe = true
+    end
+    
+    if mode == MODE.BRUTEFORCE then
+        should_safe = true
+    end
+    
+    plist.set(target_idx, "Force safe point", should_safe)
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- INTERPOLATION
+    -- ═══════════════════════════════════════════════════════════════════
+    local should_disable_interp = false
+    
+    if data and not data.is_moving and data.choked_ticks < 2 and state.pred_error_streak == 0 then
+        should_disable_interp = true
+    end
+    
+    plist.set(target_idx, "Disable interpolation", should_disable_interp)
+    
+    -- ═══════════════════════════════════════════════════════════════════
+    -- HIGH PRIORITY
+    -- ═══════════════════════════════════════════════════════════════════
+    local high_priority = state.misses_in_row > 0 or 
+                          state.pred_error_streak > 0 or
+                          mode == MODE.PEEK or
+                          state.is_peeking
+    plist.set(target_idx, "High priority", high_priority)
+end
+
+-- ============================================================================
+-- CLANTAG SYSTEM
+-- ============================================================================
+
+local ClantagSystem = {}
+
+function ClantagSystem.update()
+    if not G.clantag_enabled then return end
+    
+    local current_time = globals.realtime()
+    
+    if current_time - G.clantag_last_time >= CONFIG.clantag_speed then
+        G.clantag_last_time = current_time
+        G.clantag_index = (G.clantag_index % #CLANTAG_FRAMES) + 1
+        
+        local tag = CLANTAG_FRAMES[G.clantag_index]
+        client.set_clan_tag(tag)
+    end
+end
+
+function ClantagSystem.reset()
+    client.set_clan_tag("")
+    G.clantag_index = 1
+end
+
+-- ============================================================================
+-- KILL SAY SYSTEM (UPDATED) - Z OBSŁUGĄ IMIENIA
+-- ============================================================================
+
+local function process_kill_queue()
+    if #G.kill_say_queue == 0 then
+        G.kill_say_processing = false
+        return
+    end
+    
+    local entry = table_remove(G.kill_say_queue, 1)
+    local message = entry.message
+    local victim_name = entry.victim_name or "enemy"
+    
+    -- Zamień {name} na imię gracza
+    message = message:gsub("{name}", victim_name)
+    
+    -- Wyślij wiadomość
+    client.exec("say " .. message)
+    
+    -- Następna wiadomość z opóźnieniem (anty-spam)
+    client.delay_call(0.95, process_kill_queue)
+end
+
+local KillSaySystem = {}
+
+function KillSaySystem.add(victim_name)
+    -- Sprawdź czy włączone
+    if not G.ui.kill_say then return end
+    if not ui.get(G.ui.kill_say) then return end
+    if not CONFIG.kill_say_enabled then return end
+    
+    -- Sanitize victim name (usuń znaki specjalne)
+    victim_name = victim_name or "enemy"
+    victim_name = victim_name:gsub("[;\"']", "") -- Usuń potencjalnie niebezpieczne znaki
+    
+    -- Skróć imię jeśli za długie
+    if #victim_name > 20 then
+        victim_name = victim_name:sub(1, 18) .. ".."
+    end
+    
+    -- Losowa wiadomość
+    local message = KILL_MESSAGES[math_random(1, #KILL_MESSAGES)]
+    if not message then return end
+    
+    -- Dodaj do kolejki z imieniem
+    table_insert(G.kill_say_queue, {
+        message = message,
+        victim_name = victim_name
+    })
+    
+    -- Debug log
+    local preview = message:gsub("{name}", victim_name)
+    client.color_log(255, 200, 75, "[MW] Kill say queued: " .. preview)
+    
+    -- Start processing
+    if not G.kill_say_processing then
+        G.kill_say_processing = true
+        client.delay_call(CONFIG.kill_say_delay, process_kill_queue)
+    end
+end
+
+-- ============================================================================
+-- VISUAL SYSTEM
+-- ============================================================================
+
+local VisualSystem = {
+    show_debug = true,
+    show_indicators = true,
+    show_watermark = true,
+    show_hitlog = true,
+    
+    hitlog = {},
+    max_hitlog = 14,
+    
+    panel_x = 15,
+    panel_y = 100,
+    dragging = false,
+    drag_off = {x = 0, y = 0},
+    
+    colors = {
+        bg = {10, 10, 15, 245},
+        bg2 = {20, 20, 28, 225},
+        accent = {255, 75, 120, 255},
+        accent2 = {120, 70, 255, 255},
+        green = {80, 255, 120, 255},
+        red = {255, 75, 75, 255},
+        yellow = {255, 200, 75, 255},
+        orange = {255, 140, 50, 255},
+        cyan = {75, 210, 255, 255},
+        white = {255, 255, 255, 255},
+        gray = {150, 150, 165, 255},
+        dim = {95, 95, 110, 255}
+    }
+}
+
+function VisualSystem.add_hitlog(text, hit, is_pred_error)
+    table_insert(VisualSystem.hitlog, 1, {
+        text = text,
+        hit = hit,
+        is_pred_error = is_pred_error or false,
+        time = globals.realtime(),
+        alpha = 255
+    })
+    
+    while #VisualSystem.hitlog > VisualSystem.max_hitlog do
+        table_remove(VisualSystem.hitlog)
+    end
+end
+
+local function draw_text(x, y, r, g, b, a, flags, text)
+    renderer.text(x + 1, y + 1, 0, 0, 0, math_floor(a * 0.6), flags, 0, text)
+    renderer.text(x, y, r, g, b, a, flags, 0, text)
+end
+
+local function draw_gradient_h(x, y, w, h, r1, g1, b1, a1, r2, g2, b2, a2)
+    renderer.gradient(x, y, w, h, r1, g1, b1, a1, r2, g2, b2, a2, true)
+end
+
+function VisualSystem.draw_watermark()
+    if not VisualSystem.show_watermark then return end
+    
+    local sw, sh = client.screen_size()
+    local c = VisualSystem.colors
+    
+    local fps = math_floor(1 / math_max(0.001, globals.frametime()))
+    local ping = math_floor(client.latency() * 1000)
+    local hr = G.total_shots > 0 and math_floor(G.total_hits / G.total_shots * 100) or 0
+    local session_time = math_floor(globals.realtime() - G.session_start)
+    local minutes = math_floor(session_time / 60)
+    local seconds = session_time % 60
+    
+    local text = string_format("MISSWARE v%s | %dfps | %dms | %d%% | %d kills | %02d:%02d", 
+        VERSION, fps, ping, hr, G.total_kills, minutes, seconds)
+    
+    local tw, th = renderer.measure_text("", text)
+    local x = sw - tw - 18
+    local y = 8
+    local pad = 10
+    
+    renderer.rectangle(x - pad, y - 4, tw + pad * 2, th + 8, c.bg[1], c.bg[2], c.bg[3], c.bg[4])
+    draw_gradient_h(x - pad, y - 4, tw + pad * 2, 2, c.accent[1], c.accent[2], c.accent[3], 255, c.accent2[1], c.accent2[2], c.accent2[3], 255)
+    
+    draw_text(x, y, c.accent[1], c.accent[2], c.accent[3], 255, "", "MISSWARE")
+    
+    local rest = string_format(" v%s | %dfps | %dms | %d%% | %d kills | %02d:%02d", 
+        VERSION, fps, ping, hr, G.total_kills, minutes, seconds)
+    local mw, _ = renderer.measure_text("", "MISSWARE")
+    draw_text(x + mw, y, 255, 255, 255, 210, "", rest)
+end
+
+function VisualSystem.draw_hitlog()
+    if not VisualSystem.show_hitlog then return end
+    if #VisualSystem.hitlog == 0 then return end
+    
+    local sw, sh = client.screen_size()
+    local c = VisualSystem.colors
+    local base_y = sh / 2 - 140
+    local current_time = globals.realtime()
+    
+    for i = #VisualSystem.hitlog, 1, -1 do
+        local entry = VisualSystem.hitlog[i]
+        local age = current_time - entry.time
+        
+        if age > 6.0 then
+            table_remove(VisualSystem.hitlog, i)
+        else
+            local alpha = 255
+            if age > 5.0 then
+                alpha = math_floor(255 * (1 - (age - 5.0)))
+            end
+            
+            local y = base_y + (i - 1) * 15
+            local color
+            
+            if entry.hit then
+                color = c.green
+            elseif entry.is_pred_error then
+                color = c.orange
+            else
+                color = c.red
+            end
+            
+            draw_text(sw / 2, y, color[1], color[2], color[3], alpha, "c", entry.text)
+        end
+    end
+end
+
+function VisualSystem.draw_debug_panel()
+    if not VisualSystem.show_debug then return end
+    
+    local lp = get_local_player()
+    if not lp then return end
+    
+    local c = VisualSystem.colors
+    local x = VisualSystem.panel_x
+    local y = VisualSystem.panel_y
+    local w = 245
+    local h = 380
+    local pad = 10
+    local line = 15
+    
+    -- Drag handling
+    if ui.is_menu_open() then
+        local mx, my = ui.mouse_position()
+        local clicked = client.key_state(0x01)
+        
+        if clicked then
+            if not VisualSystem.dragging then
+                if mx >= x and mx <= x + w and my >= y and my <= y + 28 then
+                    VisualSystem.dragging = true
+                    VisualSystem.drag_off.x = mx - x
+                    VisualSystem.drag_off.y = my - y
+                end
+            end
+            
+            if VisualSystem.dragging then
+                VisualSystem.panel_x = mx - VisualSystem.drag_off.x
+                VisualSystem.panel_y = my - VisualSystem.drag_off.y
+                x = VisualSystem.panel_x
+                y = VisualSystem.panel_y
+            end
+        else
+            VisualSystem.dragging = false
+        end
+    end
+    
+    -- Get target
+    local enemies = entity.get_players(true)
+    local target = nil
+    local state = nil
+    local data = nil
+    
+    for _, idx in ipairs(enemies) do
+        if entity.is_alive(idx) then
+            target = idx
+            state = G.get_state(idx)
+            data = extract_player_data(idx)
+            break
+        end
+    end
+    
+    -- Background
+    renderer.rectangle(x - 1, y - 1, w + 2, h + 2, c.accent[1], c.accent[2], c.accent[3], 40)
+    renderer.rectangle(x, y, w, h, c.bg[1], c.bg[2], c.bg[3], c.bg[4])
+    draw_gradient_h(x, y, w, 3, c.accent[1], c.accent[2], c.accent[3], 255, c.accent2[1], c.accent2[2], c.accent2[3], 255)
+    
+    local cy = y + pad + 2
+    
+    -- Title
+    draw_text(x + w/2, cy, c.accent[1], c.accent[2], c.accent[3], 255, "c", "MISSWARE RESOLVER")
+    cy = cy + line + 2
+    draw_text(x + w/2, cy, c.dim[1], c.dim[2], c.dim[3], 180, "c", "v" .. VERSION .. " | Smart Mode Selection")
+    cy = cy + line + 4
+    
+    renderer.rectangle(x + pad, cy, w - pad * 2, 1, c.bg2[1], c.bg2[2], c.bg2[3], 180)
+    cy = cy + 8
+    
+    -- Target
+    local name = target and entity.get_player_name(target) or "---"
+    if #name > 16 then name = name:sub(1, 16) .. ".." end
+    
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "TARGET")
+    draw_text(x + w - pad, cy, c.yellow[1], c.yellow[2], c.yellow[3], 255, "r", name)
+    cy = cy + line
+    
+    -- Mode
+    local mode_name = state and MODE_NAMES[state.current_mode] or "IDLE"
+    local mode_color = c.gray
+    
+    if state then
+        if state.current_mode == MODE.BRUTEFORCE or state.current_mode == MODE.ANTI_BRUTEFORCE then
+            mode_color = c.red
+        elseif state.current_mode == MODE.ROLL or state.current_mode == MODE.LBY then
+            mode_color = c.green
+        elseif state.current_mode == MODE.PEEK or state.current_mode == MODE.BACKTRACK then
+            mode_color = c.orange
+        elseif state.current_mode == MODE.PRED_ERROR_RECOVERY then
+            mode_color = c.yellow
+        elseif state.current_mode == MODE.HYBRID then
+            mode_color = c.accent2
+        else
+            mode_color = c.cyan
+        end
+    end
+    
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "MODE")
+    draw_text(x + w - pad, cy, mode_color[1], mode_color[2], mode_color[3], 255, "r", mode_name)
+    cy = cy + line
+    
+    -- Pattern
+    local pattern = state and state.detected_pattern or "---"
+    local pattern_color = c.gray
+    if pattern == PATTERN.JITTER or pattern == PATTERN.MICRO_JITTER then pattern_color = c.red
+    elseif pattern == PATTERN.STATIC or pattern == PATTERN.LOW_DELTA then pattern_color = c.green
+    elseif pattern == PATTERN.SPIN then pattern_color = c.accent2
+    elseif pattern == PATTERN.SWITCH then pattern_color = c.orange end
+    
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "PATTERN")
+    draw_text(x + w - pad, cy, pattern_color[1], pattern_color[2], pattern_color[3], 255, "r", pattern)
+    cy = cy + line
+    
+    -- Side
+    local side_name = state and utils.side_name(state.current_side) or "---"
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "SIDE")
+    draw_text(x + w - pad, cy, c.accent[1], c.accent[2], c.accent[3], 255, "r", side_name)
+    cy = cy + line + 6
+    
+    -- Confidence bar
+    local conf = state and state.current_confidence or 0
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "CONFIDENCE")
+    draw_text(x + w - pad, cy, 255, 255, 255, 255, "r", string_format("%.0f%%", conf * 100))
+    cy = cy + 13
+    
+    local bar_w = w - pad * 2
+    renderer.rectangle(x + pad, cy, bar_w, 6, c.bg2[1], c.bg2[2], c.bg2[3], 200)
+    if conf > 0 then
+        local conf_r = math_floor(255 * (1 - conf) + 80 * conf)
+        local conf_g = math_floor(75 * (1 - conf) + 255 * conf)
+        renderer.rectangle(x + pad, cy, bar_w * conf, 6, conf_r, conf_g, 100, 255)
+    end
+    cy = cy + 12
+    
+    -- Hit rate bar
+    local hr = state and state:get_hit_rate() or 0
+    local shots = state and state.total_shots or 0
+    local hits = state and state.total_hits or 0
+    
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "HIT RATE")
+    draw_text(x + w - pad, cy, 255, 255, 255, 255, "r", string_format("%d/%d (%.0f%%)", hits, shots, hr * 100))
+    cy = cy + 13
+    
+    renderer.rectangle(x + pad, cy, bar_w, 6, c.bg2[1], c.bg2[2], c.bg2[3], 200)
+    if hr > 0 then
+        local hr_r = math_floor(255 * (1 - hr) + 80 * hr)
+        local hr_g = math_floor(75 * (1 - hr) + 255 * hr)
+        renderer.rectangle(x + pad, cy, bar_w * hr, 6, hr_r, hr_g, 100, 255)
+    end
+    cy = cy + 12
+    
+    -- Mode success rate
+    if state and state.current_mode ~= MODE.IDLE then
+        local mode_sr = state.mode_success_rate[state.current_mode] or 0.5
+        draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "MODE SUCCESS")
+        draw_text(x + w - pad, cy, 255, 255, 255, 255, "r", string_format("%.0f%%", mode_sr * 100))
+        cy = cy + line
+    else
+        cy = cy + line
+    end
+    
+    -- Miss streak
+    local misses = state and state.misses_in_row or 0
+    local miss_color = misses >= 2 and c.red or c.dim
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "MISS STREAK")
+    draw_text(x + w - pad, cy, miss_color[1], miss_color[2], miss_color[3], 255, "r", tostring(misses))
+    cy = cy + line
+    
+    -- Pred errors
+    local pred_errors = state and state.prediction_errors or 0
+    local pred_streak = state and state.pred_error_streak or 0
+    local pred_color = pred_streak > 0 and c.orange or c.dim
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "PRED ERRORS")
+    draw_text(x + w - pad, cy, pred_color[1], pred_color[2], pred_color[3], 255, "r", string_format("%d (x%d)", pred_errors, pred_streak))
+    cy = cy + line
+    
+    -- Dominant error type
+    if state and pred_errors > 0 then
+        local err_type = state.dominant_error_type or "---"
+        draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "ERROR TYPE")
+        draw_text(x + w - pad, cy, c.orange[1], c.orange[2], c.orange[3], 255, "r", err_type)
+        cy = cy + line
+    else
+        cy = cy + line
+    end
+    
+    -- Brute stage
+    local stage = state and state.brute_stage or 0
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "BRUTE STAGE")
+    draw_text(x + w - pad, cy, c.red[1], c.red[2], c.red[3], 255, "r", string_format("%d/%d", stage, CONFIG.brute_stages))
+    cy = cy + line + 6
+    
+    renderer.rectangle(x + pad, cy, w - pad * 2, 1, c.bg2[1], c.bg2[2], c.bg2[3], 180)
+    cy = cy + 8
+    
+    -- Flags
+    local flags = {}
+    if state then
+        if state.roll_detected then table_insert(flags, "ROLL") end
+        if state.flick_detected then table_insert(flags, "FLICK") end
+        if state.is_peeking then table_insert(flags, "PEEK") end
+        if state.anti_brute_detected then table_insert(flags, "A-BR") end
+        if state.resolver_locked then table_insert(flags, "LOCK") end
+        if state.defensive_detected then table_insert(flags, "DEF") end
+        if state.spin_detected then table_insert(flags, "SPIN") end
+    end
+    if data then
+        if data.is_breaking_lc then table_insert(flags, "LC") end
+        if data.is_exploiting then table_insert(flags, "EXP") end
+    end
+    
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "FLAGS")
+    if #flags > 0 then
+        draw_text(x + w - pad, cy, c.yellow[1], c.yellow[2], c.yellow[3], 255, "r", table.concat(flags, " "))
+    else
+        draw_text(x + w - pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "r", "---")
+    end
+    cy = cy + line
+    
+    -- Velocity
+    local vel = data and math_floor(data.speed_2d) or 0
+    local vel_color = vel > 170 and c.yellow or c.white
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "VELOCITY")
+    draw_text(x + w - pad, cy, vel_color[1], vel_color[2], vel_color[3], 255, "r", tostring(vel))
+    cy = cy + line
+    
+    -- Choke
+    local choke = data and data.choked_ticks or 0
+    local choke_color = choke > 10 and c.red or (choke > 4 and c.yellow or c.dim)
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "CHOKE")
+    draw_text(x + w - pad, cy, choke_color[1], choke_color[2], choke_color[3], 255, "r", tostring(choke))
+    cy = cy + line
+    
+    -- Backtrack offset
+    local bt_offset = state and state.best_backtrack_offset or 0
+    draw_text(x + pad, cy, c.dim[1], c.dim[2], c.dim[3], 255, "", "BT OFFSET")
+    draw_text(x + w - pad, cy, c.cyan[1], c.cyan[2], c.cyan[3], 255, "r", tostring(bt_offset))
+    cy = cy + line + 6
+    
+    renderer.rectangle(x + pad, cy, w - pad * 2, 1, c.bg2[1], c.bg2[2], c.bg2[3], 180)
+    cy = cy + 10
+    
+    -- Direction indicator
+    local arrow_x = x + w / 2
+    local left_a = 55
+    local center_a = 55
+    local right_a = 55
+    
+    if state then
+        if state.current_side == SIDE.LEFT then left_a = 255
+        elseif state.current_side == SIDE.CENTER then center_a = 255
+        elseif state.current_side == SIDE.RIGHT then right_a = 255 end
+    end
+    
+    draw_text(arrow_x - 40, cy, c.accent[1], c.accent[2], c.accent[3], left_a, "c", "◄ L")
+    draw_text(arrow_x, cy, 255, 255, 255, center_a, "c", "●")
+    draw_text(arrow_x + 40, cy, c.accent[1], c.accent[2], c.accent[3], right_a, "c", "R ►")
+    cy = cy + line + 2
+    
+    -- Locked indicator
+    if state and state.resolver_locked then
+        local pulse = math_abs(math_sin(globals.realtime() * 5))
+        local lock_a = math_floor(170 + 85 * pulse)
+        draw_text(x + w/2, cy, c.orange[1], c.orange[2], c.orange[3], lock_a, "c", "◆ LOCKED ◆")
+    end
+end
+
+function VisualSystem.draw_3d_indicator(idx)
+    if not VisualSystem.show_indicators then return end
+    if not entity.is_alive(idx) then return end
+    
+    local state = G.get_state(idx)
+    if not state then return end
+    
+    local c = VisualSystem.colors
+    local px, py, pz = get_prop(idx, "m_vecOrigin")
+    if not px then return end
+    
+    local duck = get_prop(idx, "m_flDuckAmount") or 0
+    local head_z = pz + utils.lerp(72, 54, duck) + 14
+    
+    local sx, sy = renderer.world_to_screen(px, py, head_z)
+    if not sx then return end
+    
+    local pw = 72
+    local ph = 32
+    local panel_x = sx - pw / 2
+    local panel_y = sy - ph - 10
+    
+    renderer.rectangle(panel_x, panel_y, pw, ph, c.bg[1], c.bg[2], c.bg[3], 215)
+    
+    local bar_color = c.accent
+    if state.current_mode == MODE.BRUTEFORCE or state.current_mode == MODE.ANTI_BRUTEFORCE then
+        bar_color = c.red
+    elseif state.current_mode == MODE.PEEK or state.current_mode == MODE.BACKTRACK then
+        bar_color = c.orange
+    elseif state.current_mode == MODE.ROLL or state.current_mode == MODE.LBY then
+        bar_color = c.green
+    elseif state.current_mode == MODE.PRED_ERROR_RECOVERY then
+        bar_color = c.yellow
+    elseif state.current_mode == MODE.HYBRID then
+        bar_color = c.accent2
+    end
+    
+    renderer.rectangle(panel_x, panel_y, pw, 2, bar_color[1], bar_color[2], bar_color[3], 230)
+    
+    local mode_text = MODE_SHORT[state.current_mode] or "?"
+    draw_text(panel_x + pw / 2, panel_y + 5, 255, 255, 255, 255, "c", mode_text)
+    
+    local ay = panel_y + 19
+    local left_a = state.current_side == SIDE.LEFT and 255 or 50
+    local center_a = state.current_side == SIDE.CENTER and 255 or 50
+    local right_a = state.current_side == SIDE.RIGHT and 255 or 50
+    
+    draw_text(panel_x + 14, ay, c.accent[1], c.accent[2], c.accent[3], left_a, "c", "◄")
+    draw_text(panel_x + pw / 2, ay, 255, 255, 255, center_a, "c", "●")
+    draw_text(panel_x + pw - 14, ay, c.accent[1], c.accent[2], c.accent[3], right_a, "c", "►")
+    
+    renderer.line(sx, panel_y + ph, sx, sy, bar_color[1], bar_color[2], bar_color[3], 60)
+end
+
+-- ============================================================================
+-- UI SYSTEM
+-- ============================================================================
+
+local UISystem = {}
+
+function UISystem.create()
+    local tab = "LUA"
+    local container = "A"
+    
+    ui.new_label(tab, container, "═══ MISSWARE v" .. VERSION .. " ═══")
+    G.ui.enable = ui.new_checkbox(tab, container, "[MW] Enable Resolver")
+    G.ui.clantag = ui.new_checkbox(tab, container, "[MW] Clantag Animation")
+    G.ui.kill_say = ui.new_checkbox(tab, container, "[MW] Kill Say")
+    
+    ui.new_label(tab, container, "─── Visuals ───")
+    G.ui.debug = ui.new_checkbox(tab, container, "[MW] Debug Panel")
+    G.ui.indicators = ui.new_checkbox(tab, container, "[MW] 3D Indicators")
+    G.ui.watermark = ui.new_checkbox(tab, container, "[MW] Watermark")
+    G.ui.hitlog = ui.new_checkbox(tab, container, "[MW] Hit Log")
+    
+    ui.new_label(tab, container, "─── Resolver Settings ───")
+    G.ui.baim_misses = ui.new_slider(tab, container, "[MW] Body After Misses", 1, 5, 2)
+    G.ui.brute_stages = ui.new_slider(tab, container, "[MW] Max Brute Stages", 6, 14, 14)
+    G.ui.backtrack_ticks = ui.new_slider(tab, container, "[MW] Backtrack Ticks", 4, 12, 12)
+    G.ui.safe_always = ui.new_checkbox(tab, container, "[MW] Force Safe Point Always")
+    G.ui.prefer_body_pe = ui.new_checkbox(tab, container, "[MW] Body on Pred Error")
+    G.ui.prefer_body_jitter = ui.new_checkbox(tab, container, "[MW] Body on Jitter")
+    
+    ui.new_label(tab, container, "─── Actions ───")
+    G.ui.reset = ui.new_button(tab, container, "[MW] Reset All Stats", function()
+        for idx, state in pairs(G.player_states) do
+            state.total_shots = 0
+            state.total_hits = 0
+            state.head_hits = 0
+            state.body_hits = 0
+            state.prediction_errors = 0
+            state.pred_error_streak = 0
+            state.misses_in_row = 0
+            state.hits_in_row = 0
+            state.brute_stage = 0
+            state.shot_history:clear()
+            state.pred_error_types = {}
+            state.side_hit_counts = {[SIDE.LEFT] = 0, [SIDE.CENTER] = 0, [SIDE.RIGHT] = 0}
+            for i = 0, CONFIG.brute_stages do
+                state.stage_misses[i] = {count = 0, last_tick = 0}
+            end
+            for mode = 0, 20 do
+                state.mode_shots[mode] = 0
+                state.mode_hits[mode] = 0
+                state.mode_success_rate[mode] = 0.5
+            end
+            BacktrackSystem.clear(idx)
+        end
+        G.total_shots = 0
+        G.total_hits = 0
+        G.total_kills = 0
+        G.session_start = globals.realtime()
+        VisualSystem.hitlog = {}
+        client.color_log(255, 75, 120, "[MISSWARE] All stats reset!")
+    end)
+    
+    -- Defaults
+    ui.set(G.ui.enable, true)
+    ui.set(G.ui.clantag, true)
+    ui.set(G.ui.kill_say, true)
+    ui.set(G.ui.debug, true)
+    ui.set(G.ui.indicators, true)
+    ui.set(G.ui.watermark, true)
+    ui.set(G.ui.hitlog, true)
+    ui.set(G.ui.prefer_body_pe, true)
+    ui.set(G.ui.prefer_body_jitter, true)
+end
+
+function UISystem.update()
+    G.enabled = ui.get(G.ui.enable)
+    G.clantag_enabled = ui.get(G.ui.clantag)
+    CONFIG.kill_say_enabled = ui.get(G.ui.kill_say)
+    VisualSystem.show_debug = ui.get(G.ui.debug)
+    VisualSystem.show_indicators = ui.get(G.ui.indicators)
+    VisualSystem.show_watermark = ui.get(G.ui.watermark)
+    VisualSystem.show_hitlog = ui.get(G.ui.hitlog)
+    
+    CONFIG.baim_after_misses = ui.get(G.ui.baim_misses)
+    CONFIG.brute_stages = ui.get(G.ui.brute_stages)
+    CONFIG.backtrack_max_ticks = ui.get(G.ui.backtrack_ticks)
+    CONFIG.baim_on_pred_error = ui.get(G.ui.prefer_body_pe)
+    
+    if ui.get(G.ui.safe_always) then
+        CONFIG.safe_point_on_miss = true
+        CONFIG.safe_point_on_movement = true
+    end
+end
+
+
+
+-- ============================================================================
+-- EVENT HANDLERS
+-- ============================================================================
+
+local EventHandlers = {}
+local pending_shots = {}
+
+function EventHandlers.on_aim_fire(e)
+    if not G.enabled then return end
+    
+    local target = e.target
+    if not target or target == 0 then return end
+    
+    local state = G.get_state(target)
+    if not state then return end
+    
+    local data = state.last_data
+    
+    pending_shots[target] = {
+        tick = globals.tickcount(),
+        predicted_side = state.current_side,
+        resolver_mode = state.current_mode,
+        brute_stage = state.brute_stage,
+        was_peeking = state.is_peeking,
+        target_velocity = data and data.speed_2d or 0,
+        target_in_air = data and data.is_in_air or false,
+        was_defensive = data and data.is_defensive or false,
+        choked_ticks = data and data.choked_ticks or 0,
+        desync_amount = data and data.desync_amount or 0,
+        backtrack_offset = state.best_backtrack_offset or 0
+    }
+    
+    state:lock(state.current_side, state.is_peeking and CONFIG.lock_ticks_peek or CONFIG.lock_ticks_normal)
+    
+    G.total_shots = G.total_shots + 1
+end
+
+function EventHandlers.on_aim_hit(e)
+    if not G.enabled then return end
+    
+    local target = e.target
+    if not target or target == 0 then return end
+    
+    local state = G.get_state(target)
+    if not state then return end
+    
+    local shot_data = pending_shots[target] or {}
+    
+    local record = ShotRecord.new({
+        hit = true,
+        hitgroup = e.hitgroup,
+        damage = e.damage,
+        predicted_side = shot_data.predicted_side or state.current_side,
+        resolver_mode = shot_data.resolver_mode or state.current_mode,
+        target_velocity = shot_data.target_velocity or 0,
+        target_in_air = shot_data.target_in_air or false,
+        was_peeking = shot_data.was_peeking or false,
+        brute_stage = shot_data.brute_stage or state.brute_stage,
+        was_defensive = shot_data.was_defensive or false,
+        choked_ticks = shot_data.choked_ticks or 0,
+        desync_amount = shot_data.desync_amount or 0,
+        backtrack_offset = shot_data.backtrack_offset or 0
+    })
+    
+    state:add_shot(record)
+    G.total_hits = G.total_hits + 1
+    
+    local name = entity.get_player_name(target) or "?"
+    local hg = HITGROUP[e.hitgroup] or "body"
+    local mode = MODE_SHORT[record.resolver_mode] or "?"
+    local text = string_format("HIT %s [%s] %ddmg (%s)", name, hg, e.damage, mode)
+    VisualSystem.add_hitlog(text, true, false)
+    
+    client.color_log(80, 255, 120, "[MW] " .. text)
+    
+    pending_shots[target] = nil
+end
+
+function EventHandlers.on_aim_miss(e)
+    if not G.enabled then return end
+    
+    local target = e.target
+    if not target or target == 0 then return end
+    
+    local state = G.get_state(target)
+    if not state then return end
+    
+    local shot_data = pending_shots[target] or {}
+    local reason = e.reason or "?"
+    
+    local record = ShotRecord.new({
+        hit = false,
+        hitgroup = e.hitgroup,
+        damage = 0,
+        predicted_side = shot_data.predicted_side or state.current_side,
+        resolver_mode = shot_data.resolver_mode or state.current_mode,
+        reason = reason,
+        target_velocity = shot_data.target_velocity or 0,
+        target_in_air = shot_data.target_in_air or false,
+        was_peeking = shot_data.was_peeking or false,
+        brute_stage = shot_data.brute_stage or state.brute_stage,
+        was_defensive = shot_data.was_defensive or false,
+        choked_ticks = shot_data.choked_ticks or 0,
+        desync_amount = shot_data.desync_amount or 0,
+        backtrack_offset = shot_data.backtrack_offset or 0
+    })
+    
+    state:add_shot(record)
+    
+    -- Unlock on miss to allow mode change
+    state:unlock()
+    
+    local is_pred_error = record:is_prediction_error()
+    local name = entity.get_player_name(target) or "?"
+    local mode = MODE_SHORT[record.resolver_mode] or "?"
+    local text = string_format("MISS %s [%s] (%s)", name, reason, mode)
+    VisualSystem.add_hitlog(text, false, is_pred_error)
+    
+    if is_pred_error then
+        local err_type = record:analyze_error()
+        client.color_log(255, 140, 50, "[MW] " .. text .. " [" .. err_type .. "]")
+    else
+        client.color_log(255, 75, 75, "[MW] " .. text)
+    end
+    
+    pending_shots[target] = nil
+end
+
+function EventHandlers.on_net_update_end()
+    if not G.enabled then return end
+    
+    ObjectPool.reset_frame()
+    
+    local lp = get_local_player()
+    if not lp then return end
+    
+    G.local_player = lp
+    G.frame_count = G.frame_count + 1
+    
+    local enemies = entity.get_players(true)
+    
+    for _, idx in ipairs(enemies) do
+        if entity.is_alive(idx) then
+            local state = G.get_state(idx)
+            local data = extract_player_data(idx)
+            
+            local side, conf, mode = MainResolver.resolve(idx, lp)
+            
+            ResolverApplication.apply(idx, side, conf, mode, data, state)
+            
+            if ui.get(G.ui.safe_always) then
+                plist.set(idx, "Force safe point", true)
+            end
+            
+            -- Store debug info
+            G.last_resolve_info[idx] = {
+                side = side,
+                conf = conf,
+                mode = mode,
+                tick = globals.tickcount()
+            }
+        end
+    end
+    
+    -- Cleanup every 500 ticks
+    if G.frame_count % 500 == 0 then
+        G.cleanup()
+    end
+end
+
+function EventHandlers.on_paint()
+    if not G.enabled then return end
+    
+    UISystem.update()
+    ClantagSystem.update()
+    
+    VisualSystem.draw_watermark()
+    VisualSystem.draw_hitlog()
+    VisualSystem.draw_debug_panel()
+end
+
+function EventHandlers.on_paint_ui()
+    if not G.enabled then return end
+    if not VisualSystem.show_indicators then return end
+    
+    local enemies = entity.get_players(true)
+    for _, idx in ipairs(enemies) do
+        VisualSystem.draw_3d_indicator(idx)
+    end
+end
+
+function EventHandlers.on_player_death(e)
+    local victim = client.userid_to_entindex(e.userid)
+    local attacker = client.userid_to_entindex(e.attacker)
+    local lp = get_local_player()
+    
+    if victim and victim ~= 0 then
+        G.player_states[victim] = nil
+        pending_shots[victim] = nil
+        BacktrackSystem.clear(victim)
+    end
+    
+    if lp and attacker == lp and victim ~= lp then
+        G.total_kills = G.total_kills + 1
+        local victim_name = entity.get_player_name(victim) or "enemy"
+        KillSaySystem.add(victim_name)
+    end
+end
+
+function EventHandlers.on_round_start()
+    -- Reset some per-round state
+    for idx, state in pairs(G.player_states) do
+        state.misses_in_row = 0
+        state.hits_in_row = 0
+        state.pred_error_streak = 0
+        state.brute_stage = 0
+        state.resolver_locked = false
+        BacktrackSystem.clear(idx)
+    end
+end
+
+function EventHandlers.on_shutdown()
+    ClantagSystem.reset()
+    
+    local enemies = entity.get_players(true)
+    for _, idx in ipairs(enemies) do
+        pcall(function()
+            plist.set(idx, "Force body yaw", false)
+            plist.set(idx, "Override prefer body aim", "Off")
+            plist.set(idx, "Force safe point", false)
+            plist.set(idx, "High priority", false)
+            plist.set(idx, "Disable interpolation", false)
+        end)
+    end
+    
+    client.color_log(255, 75, 120, "[MISSWARE] Goodbye! Final stats: " .. G.total_hits .. "/" .. G.total_shots .. " hits, " .. G.total_kills .. " kills")
+end
+
+-- ============================================================================
+-- INITIALIZATION
+-- ============================================================================
+
+local function initialize()
+    UISystem.create()
+    
+    client.set_event_callback("aim_fire", EventHandlers.on_aim_fire)
+    client.set_event_callback("aim_hit", EventHandlers.on_aim_hit)
+    client.set_event_callback("aim_miss", EventHandlers.on_aim_miss)
+    client.set_event_callback("net_update_end", EventHandlers.on_net_update_end)
+    client.set_event_callback("paint", EventHandlers.on_paint)
+    client.set_event_callback("paint_ui", EventHandlers.on_paint_ui)
+    client.set_event_callback("player_death", EventHandlers.on_player_death)
+    client.set_event_callback("round_start", EventHandlers.on_round_start)
+    client.set_event_callback("shutdown", EventHandlers.on_shutdown)
+    
+    client.set_clan_tag("Missware")
+    
+    client.color_log(255, 75, 120, "╔═══════════════════════════════════════════════╗")
+    client.color_log(255, 75, 120, "║       MISSWARE RESOLVER v" .. VERSION .. "            ║")
+    client.color_log(255, 75, 120, "║          FULLY LOADED & READY                 ║")
+    client.color_log(255, 75, 120, "╚═══════════════════════════════════════════════╝")
+    client.color_log(80, 255, 120, "[✓] Smart Mode Selection Engine")
+    client.color_log(80, 255, 120, "[✓] 14-Stage Bruteforce System")
+    client.color_log(80, 255, 120, "[✓] Full Backtrack Integration")
+    client.color_log(80, 255, 120, "[✓] Prediction Error Analysis")
+    client.color_log(80, 255, 120, "[✓] Roll/LBY/Peek/Flick Detection")
+    client.color_log(80, 255, 120, "[✓] Advanced Pattern Analysis (FFT)")
+    client.color_log(80, 255, 120, "[✓] Multi-angle Freestanding")
+    client.color_log(80, 255, 120, "[✓] Per-Mode Success Tracking")
+    client.color_log(80, 255, 120, "[✓] Object Pooling (Zero GC)")
+    client.color_log(80, 255, 120, "[✓] Hybrid Mode Fallback")
+    client.color_log(80, 255, 120, "[✓] Kill Say & Clantag")
+    client.color_log(80, 255, 120, "[✓] Advanced Visual System")
+    client.color_log(255, 75, 120, "")
+    client.color_log(255, 75, 120, "[♦] MISSWARE v" .. VERSION .. " READY!")
+    client.color_log(255, 200, 75, "[!] Smart Mode Selection aktywny - resolver automatycznie dobiera najlepszy tryb")
+end
+
+initialize()
